@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { AcpStatus, AgentInfo, AppSettings, BookRecord, Highlight } from "../lib/types";
+import { useEffect, useState } from "react";
+import type { AcpStatus, AgentInfo, AppSettings, BookRecord, Highlight, ReaderTurn } from "../lib/types";
 
 type Tab = "marks" | "notes" | "ai" | "glossary";
 
@@ -20,6 +20,8 @@ type Props = {
   onCancel: () => void;
   onJump: (mark: Highlight) => void;
   onDeleteMark: (id: string) => void;
+  turn: ReaderTurn | null;
+  aiTick: number;
 };
 
 const kindLabel: Record<string, string> = {
@@ -46,10 +48,16 @@ export default function SidePanel({
   onCancel,
   onJump,
   onDeleteMark,
+  turn,
+  aiTick,
 }: Props) {
   const [tab, setTab] = useState<Tab>("marks");
   const [question, setQuestion] = useState("");
   const marks = [...(book?.highlights ?? [])].sort((a, b) => a.page - b.page || a.createdAt.localeCompare(b.createdAt));
+
+  useEffect(() => {
+    if (aiTick > 0) setTab("ai");
+  }, [aiTick]);
 
   return (
     <aside className="side">
@@ -122,8 +130,7 @@ export default function SidePanel({
       {tab === "ai" && (
         <>
           <p className="hint">
-            Pageg 复刻的是 Codeg 的 ACP 客户端能力：拉起 Codex / Claude / Gemini 的真实 CLI，而不是自己再包一层模型。
-            AI 默认闭嘴，只有你点了动作才会 prompt。
+            划词后点翻译 / 解释。Pageg 会复用你本机 Cursor 或 Codex 的登录，但只把选中句子交给它，并丢掉思考和工具调用。
           </p>
           <div className="ask">
             <select
@@ -150,7 +157,7 @@ export default function SidePanel({
                   断开
                 </button>
               ) : (
-                <button className="solid" onClick={onConnect} disabled={!book}>
+                <button className="solid" onClick={onConnect}>
                   连接 Agent
                 </button>
               )}
@@ -179,7 +186,16 @@ export default function SidePanel({
                 提问
               </button>
             </form>
-            <div className="stream">{stream || "还没有这一轮的回答。"}</div>
+            <div className={`stream ${turn && !turn.ok ? "bad" : ""}`}>
+              {turn ? (
+                <>
+                  {turn.quote ? <p className="quote">{turn.quote}</p> : null}
+                  <p className="answer">{turn.answer}</p>
+                </>
+              ) : (
+                stream || "划词后点翻译或解释。回答只出现在这里，不会改 PDF。"
+              )}
+            </div>
             {logs && <pre className="hint">{logs.slice(-1200)}</pre>}
           </div>
         </>

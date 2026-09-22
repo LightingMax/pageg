@@ -390,6 +390,8 @@ async fn handshake(
         .ok_or("session/new did not return sessionId")?
         .to_string();
 
+    prefer_ask_mode(&io, &session_id, &created).await;
+
     Ok(AcpSession {
         child,
         io,
@@ -436,6 +438,36 @@ fn auth_already_ok(err: &str) -> bool {
         || lower.contains("not required")
         || lower.contains("not needed")
         || (lower.contains("auth") && lower.contains("skip"))
+}
+
+async fn prefer_ask_mode(io: &RpcIo, session_id: &str, created: &Value) {
+    let mode_id = created
+        .get("modes")
+        .and_then(|v| v.as_array())
+        .and_then(|modes| {
+            modes.iter().find_map(|mode| {
+                let id = mode.get("id").and_then(|v| v.as_str())?;
+                let name = mode.get("name").and_then(|v| v.as_str()).unwrap_or(id);
+                if id.eq_ignore_ascii_case("ask")
+                    || name.to_lowercase().contains("ask")
+                    || name.contains("问答")
+                    || name.contains("只读")
+                {
+                    Some(id.to_string())
+                } else {
+                    None
+                }
+            })
+        })
+        .or_else(|| Some("ask".into()));
+    if let Some(mode_id) = mode_id {
+        let _ = io
+            .request(
+                "session/set_mode",
+                json!({ "sessionId": session_id, "modeId": mode_id }),
+            )
+            .await;
+    }
 }
 
 fn spawn_command(command: &str, args: &[String]) -> Command {
@@ -517,19 +549,40 @@ async fn read_stdout(
                     .get("sessionUpdate")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
-                let text = chunk_text(&update);
+                let kind = session_update.as_deref().unwrap_or("");
+                if kind == "agent_thought_chunk" || kind == "tool_call" || kind == "tool_call_update" {
+                    if let Some(text) = chunk_text(&update) {
+                        let _ = app.emit(
+                            "acp-event",
+                            AcpEvent {
+                                kind: "log".into(),
+                                text: Some(format!("{text}\n")),
+                                session_update,
+                                status: None,
+                            },
+                        );
+                    }
+                    continue;
+                }
+                let text = if is_reader_message(kind) {
+                    chunk_text(&update)
+                } else {
+                    None
+                };
                 if let Some(chunk) = &text {
                     io.assembled.lock().await.push_str(chunk);
                 }
-                let _ = app.emit(
-                    "acp-event",
-                    AcpEvent {
-                        kind: "session_update".into(),
-                        text,
-                        session_update,
-                        status: None,
-                    },
-                );
+                if text.is_some() {
+                    let _ = app.emit(
+                        "acp-event",
+                        AcpEvent {
+                            kind: "session_update".into(),
+                            text,
+                            session_update,
+                            status: None,
+                        },
+                    );
+                }
             }
             continue;
         }
@@ -545,13 +598,36 @@ async fn read_stdout(
     }
 }
 
+fn is_reader_message(kind: &str) -> bool {
+    kind.is_empty()
+        || kind == "agent_message_chunk"
+        || kind == "agent_message"
+        || kind == "message"
+        || kind == "message_chunk"
+}
+
 fn chunk_text(update: &Value) -> Option<String> {
-    update
+    if let Some(text) = update
         .get("content")
         .and_then(|c| c.get("text"))
         .and_then(|t| t.as_str())
-        .map(|s| s.to_string())
-        .or_else(|| update.get("text").and_then(|t| t.as_str()).map(|s| s.to_string()))
+    {
+        return Some(text.to_string());
+    }
+    if let Some(text) = update.get("text").and_then(|t| t.as_str()) {
+        return Some(text.to_string());
+    }
+    if let Some(items) = update.get("content").and_then(|c| c.as_array()) {
+        let joined = items
+            .iter()
+            .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join("");
+        if !joined.is_empty() {
+            return Some(joined);
+        }
+    }
+    None
 }
 
 async fn handle_agent_request(
@@ -594,32 +670,64 @@ async fn handle_agent_request(
         "cursor/create_plan" => Ok(json!({ "outcome": { "outcome": "accepted" } })),
         "session/request_permission" => {
             let options = params.get("options").and_then(|v| v.as_array()).cloned();
-            let option_id = options
-                .as_ref()
-                .and_then(|opts| {
-                    opts.iter().find(|opt| {
-                        opt.get("kind")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .contains("allow")
-                            || opt
-                                .get("optionId")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .contains("allow")
-                    })
+            let reject = options.as_ref().and_then(|opts| {
+                opts.iter().find(|opt| {
+                    let blob = format!(
+                        "{} {}",
+                        opt.get("kind").and_then(|v| v.as_str()).unwrap_or(""),
+                        opt.get("optionId").and_then(|v| v.as_str()).unwrap_or("")
+                    )
+                    .to_lowercase();
+                    blob.contains("reject") || blob.contains("deny") || blob.contains("cancel")
                 })
-                .or_else(|| options.as_ref().and_then(|opts| opts.first()))
-                .and_then(|opt| opt.get("optionId").and_then(|v| v.as_str()))
-                .unwrap_or("");
-            if option_id.is_empty() {
-                Ok(json!({ "outcome": { "outcome": "cancelled" } }))
-            } else {
+            });
+            if let Some(opt) = reject {
+                let option_id = opt
+                    .get("optionId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("reject-once");
                 Ok(json!({ "outcome": { "outcome": "selected", "optionId": option_id } }))
+            } else {
+                Ok(json!({ "outcome": { "outcome": "cancelled" } }))
             }
         }
         _ => Err(format!("Unsupported client method: {method}")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_chunks_are_kept() {
+        let update = json!({
+            "sessionUpdate": "agent_message_chunk",
+            "content": { "type": "text", "text": "译：你好" }
+        });
+        assert_eq!(chunk_text(&update).as_deref(), Some("译：你好"));
+        assert!(is_reader_message("agent_message_chunk"));
+    }
+
+    #[test]
+    fn thoughts_and_tools_are_not_reader_messages() {
+        assert!(!is_reader_message("agent_thought_chunk"));
+        assert!(!is_reader_message("tool_call"));
+        assert!(!is_reader_message("tool_call_update"));
+        assert!(!is_reader_message("plan"));
+    }
+
+    #[test]
+    fn content_arrays_are_joined() {
+        let update = json!({
+            "content": [
+                { "type": "text", "text": "译：" },
+                { "type": "text", "text": "腺苷三磷酸" }
+            ]
+        });
+        assert_eq!(chunk_text(&update).as_deref(), Some("译：腺苷三磷酸"));
+    }
+}
+
 
 

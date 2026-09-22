@@ -48,6 +48,13 @@ export type AppSettings = {
   currentShelf: string;
 };
 
+export type ReaderTurn = {
+  intent: "translate" | "explain" | "ask";
+  quote: string;
+  answer: string;
+  ok: boolean;
+};
+
 export type AcpStatus = {
   state: "disconnected" | "connecting" | "ready" | "prompting" | "error";
   agentId?: string;

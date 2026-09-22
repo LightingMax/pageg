@@ -46,6 +46,10 @@ function hitTest(highlights: Highlight[], x: number, y: number) {
   );
 }
 
+function tidyLayerText(text: string) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 const Thumbnail = memo(function Thumbnail({
   pdf,
   pageNumber,
@@ -388,7 +392,7 @@ export default function PdfPane({
       if (!stage || !pagesRef.current?.contains(stage)) return;
       const pageNumber = Number(stage.dataset.page);
       const sel = window.getSelection();
-      const text = sel?.toString().trim() ?? "";
+      const text = tidyLayerText(sel?.toString() ?? "");
       if (text && sel && sel.rangeCount > 0) {
         const range = sel.getRangeAt(0);
         if (!stage.contains(range.commonAncestorContainer)) return;
@@ -403,7 +407,7 @@ export default function PdfPane({
           }));
         if (rects.length === 0) return;
         const last = rects.at(-1);
-        const nearby = stage.querySelector(".textLayer")?.textContent ?? "";
+        const nearby = tidyLayerText(stage.querySelector(".textLayer")?.textContent ?? "");
         const idx = nearby.indexOf(text);
         const context = idx >= 0 ? nearby.slice(Math.max(0, idx - 280), idx + text.length + 280) : text;
         setNoteOpen(false);
@@ -632,7 +636,7 @@ export default function PdfPane({
         {!sourcePath && (
           <div className="dropzone">
             <h2>把 PDF 拖进来</h2>
-            <p className="hint">也可以点下面的按钮导入。原文不会被改，高亮、备注都存在这本书自己的笔记库里。</p>
+            <p className="hint">导入后划词，点翻译或解释。AI 只动你点的那一句，PDF 本身不会被改。</p>
             <div className="dropzone-actions">
               <button className="solid" onClick={onImport}>
                 选择 PDF

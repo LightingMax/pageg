@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 const host = process.env.TAURI_DEV_HOST;
@@ -24,5 +24,9 @@ export default defineConfig({
   envPrefix: ["VITE_", "TAURI_ENV_*"],
   worker: {
     format: "es",
+  },
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.ts"],
   },
 });

@@ -5,6 +5,7 @@ import SidePanel from "./components/SidePanel";
 import SetupPage from "./components/SetupPage";
 import TabBar from "./components/TabBar";
 import { assemblePrompt, sessionBlock } from "./lib/context";
+import { readerAnswer, tidyQuote } from "./lib/answer";
 import type {
   AcpEvent,
   AcpStatus,
@@ -16,6 +17,7 @@ import type {
   DiagnoseReport,
   Highlight,
   MarkOptions,
+  ReaderTurn,
   SelectionPayload,
 } from "./lib/types";
 
@@ -66,6 +68,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [sessionLog, setSessionLog] = useState("");
+  const [turn, setTurn] = useState<ReaderTurn | null>(null);
+  const [aiTick, setAiTick] = useState(0);
   const autoTried = useRef(false);
 
   const refreshLibrary = useCallback(async () => {
@@ -323,27 +327,46 @@ export default function App() {
     sel?: SelectionPayload | null,
   ) => {
     if (!book) return;
-    const selected = sel?.text ?? "";
+    if (status.state !== "ready" && status.state !== "prompting") {
+      setError("还没连上智能体。点右上角状态钮，连上后再翻译。");
+      setSetupOpen(true);
+      return;
+    }
+    const selected = tidyQuote(sel?.text ?? "");
     const prompt = assemblePrompt({
       intent,
       book,
       page: sel?.page ?? page,
       selected,
-      context: sel?.context ?? "",
+      context: tidyQuote(sel?.context ?? ""),
       extra,
       sessionLog,
     });
 
     setStream("");
+    setAiTick((n) => n + 1);
+    setTurn({
+      intent,
+      quote: selected || extra || "",
+      answer: intent === "translate" ? "正在翻译…" : intent === "explain" ? "正在解释…" : "正在回答…",
+      ok: true,
+    });
     try {
-      const answer = await window.pageg.acpPrompt(prompt);
+      const raw = await window.pageg.acpPrompt(prompt);
+      const result = readerAnswer(raw, intent);
+      setStream(result.text);
+      setTurn({ intent, quote: selected || extra || "", answer: result.text, ok: result.ok });
+      if (!result.ok) {
+        setError(result.text);
+        return;
+      }
       const log = await window.pageg.appendSession(
         book.id,
-        sessionBlock(intent, sel?.page ?? page, selected || extra || "", answer),
+        sessionBlock(intent, sel?.page ?? page, selected || extra || "", result.text),
       );
       setSessionLog(log);
       if (intent !== "ask" && selected && sel) {
-        const nextNotes = await window.pageg.appendNote(book.id, noteBlock(sel.page, selected, answer));
+        const nextNotes = await window.pageg.appendNote(book.id, noteBlock(sel.page, selected, result.text));
         setBook((prev) =>
           prev
             ? {
@@ -356,7 +379,7 @@ export default function App() {
                     page: sel.page,
                     text: selected,
                     color: intent === "translate" ? "#7eb6d9" : "#8fbf6a",
-                    note: answer,
+                    note: result.text,
                     rects: sel.rects,
                     createdAt: new Date().toISOString(),
                     kind: intent === "translate" ? "translate" : "explain",
@@ -368,9 +391,11 @@ export default function App() {
         );
       }
     } catch (err) {
+      const message = asError(err);
+      setTurn({ intent, quote: selected || extra || "", answer: message, ok: false });
       setStatus({
         state: "error",
-        message: asError(err),
+        message,
       });
     }
   };
@@ -507,6 +532,8 @@ export default function App() {
           stream={stream}
           logs={logs}
           activeId={activeId}
+          turn={turn}
+          aiTick={aiTick}
           onNotes={(notes) => setBook((prev) => (prev ? { ...prev, notes } : prev))}
           onGlossary={(glossary) => setBook((prev) => (prev ? { ...prev, glossary } : prev))}
           onSettings={setSettings}

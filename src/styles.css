@@ -474,6 +474,13 @@ button:disabled { opacity: 0.45; cursor: default; }
   font-size: 14px;
   line-height: 1.6;
 }
+.stream.bad { box-shadow: inset 3px 0 0 var(--oxblood); }
+.stream .quote {
+  margin: 0 0 10px;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.stream .answer { margin: 0; }
 
 .status-dot {
   width: 8px;
