@@ -50,6 +50,11 @@ function tidyLayerText(text: string) {
   return text.replace(/\s+/g, " ").trim();
 }
 
+function pageStageForNode(node: Node | null) {
+  const element = node instanceof Element ? node : node?.parentElement;
+  return element?.closest<HTMLElement>("[data-page]") ?? null;
+}
+
 const Thumbnail = memo(function Thumbnail({
   pdf,
   pageNumber,
@@ -120,6 +125,7 @@ const PageSheet = memo(function PageSheet({
   metric,
   highlights,
   activeId,
+  onSelect,
 }: {
   pdf: PdfDoc;
   pageNumber: number;
@@ -127,6 +133,7 @@ const PageSheet = memo(function PageSheet({
   metric: PageMetric;
   highlights: Highlight[];
   activeId: string | null;
+  onSelect: (id: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -219,6 +226,25 @@ const PageSheet = memo(function PageSheet({
         )}
       </div>
       <div ref={textRef} className="textLayer" />
+      {pageHighlights
+        .filter((h) => h.kind === "tag")
+        .map((tag, index) => (
+          <button
+            key={`tag-${tag.id}`}
+            type="button"
+            className={`page-tag ${tag.id === activeId ? "active" : ""}`}
+            style={{
+              top: `${Math.max(1, Math.min(94, (tag.rects[0]?.y ?? 0.08) * 100))}%`,
+              ["--tag-color" as string]: tag.color || COLORS[2],
+              transform: `translateY(${index * 3}px)`,
+            }}
+            title={`跳到标签：${tag.label || tag.text}`}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onSelect(tag.id)}
+          >
+            {tag.label || "标签"}
+          </button>
+        ))}
     </div>
   );
 });
@@ -259,6 +285,9 @@ export default function PdfPane({
   const [selection, setSelection] = useState<SelectionPayload | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
+  const [tagOpen, setTagOpen] = useState(false);
+  const [tagDraft, setTagDraft] = useState("");
+  const [zoom, setZoom] = useState(1);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [shelfName, setShelfName] = useState("");
@@ -379,49 +408,114 @@ export default function PdfPane({
     if (!activeId) return;
     const found = highlights.find((h) => h.id === activeId);
     if (found) {
-      setNoteDraft(found.note ?? "");
-      setNoteOpen(true);
+      if (found.kind === "tag") {
+        setTagDraft(found.label ?? "");
+        setTagOpen(true);
+        setNoteOpen(false);
+      } else {
+        setNoteDraft(found.note ?? "");
+        setNoteOpen(true);
+        setTagOpen(false);
+      }
     }
   }, [activeId]);
 
   useEffect(() => {
+    let selectionTimer = 0;
+    let dragStart: { stage: HTMLElement; x: number; y: number } | null = null;
+
+    const showSelection = (stage: HTMLElement, text: string, rects: Highlight["rects"]) => {
+      if (rects.length === 0) return false;
+      const pageNumber = Number(stage.dataset.page);
+      const pageBox = stage.getBoundingClientRect();
+      const last = rects.at(-1);
+      const nearby = tidyLayerText(stage.querySelector(".textLayer")?.textContent ?? "");
+      const idx = nearby.indexOf(text);
+      const context = idx >= 0 ? nearby.slice(Math.max(0, idx - 280), idx + text.length + 280) : text;
+      setNoteOpen(false);
+      setTagOpen(false);
+      onSelect(null);
+      setSelection({
+        page: pageNumber,
+        text,
+        context,
+        rects,
+        x: last ? (last.x + last.w) * pageBox.width : 24,
+        y: last ? last.y * pageBox.height : 24,
+      });
+      return true;
+    };
+
+    const captureTextSelection = () => {
+      const sel = window.getSelection();
+      const text = tidyLayerText(sel?.toString() ?? "");
+      if (!text || !sel || sel.rangeCount === 0) return false;
+      const range = sel.getRangeAt(0);
+      const stage = pageStageForNode(range.startContainer);
+      if (!stage || !pagesRef.current?.contains(stage)) return false;
+      const pageBox = stage.getBoundingClientRect();
+      const rects = [...range.getClientRects()]
+        .filter(
+          (r) =>
+            r.width > 1 &&
+            r.height > 1 &&
+            r.right > pageBox.left &&
+            r.left < pageBox.right &&
+            r.bottom > pageBox.top &&
+            r.top < pageBox.bottom,
+        )
+        .map((r) => ({
+          x: Math.max(0, r.left - pageBox.left) / pageBox.width,
+          y: Math.max(0, r.top - pageBox.top) / pageBox.height,
+          w: Math.max(0, Math.min(r.right, pageBox.right) - Math.max(r.left, pageBox.left)) / pageBox.width,
+          h: Math.max(0, Math.min(r.bottom, pageBox.bottom) - Math.max(r.top, pageBox.top)) / pageBox.height,
+        }));
+      return showSelection(stage, text, rects);
+    };
+
+    const captureDragSelection = (event: MouseEvent, origin: NonNullable<typeof dragStart>) => {
+      if (!pagesRef.current?.contains(origin.stage)) return false;
+      const distance = Math.hypot(event.clientX - origin.x, event.clientY - origin.y);
+      if (distance < 5) return false;
+      const pageBox = origin.stage.getBoundingClientRect();
+      const x1 = Math.min(origin.x, event.clientX);
+      const x2 = Math.max(origin.x, event.clientX);
+      const sameLine = Math.abs(event.clientY - origin.y) < 14;
+      const y1 = sameLine ? Math.min(origin.y, event.clientY) - 9 : Math.min(origin.y, event.clientY);
+      const y2 = sameLine ? Math.max(origin.y, event.clientY) + 9 : Math.max(origin.y, event.clientY);
+      const pieces = [...origin.stage.querySelectorAll<HTMLElement>(".textLayer span")]
+        .map((node) => ({ node, box: node.getBoundingClientRect() }))
+        .filter(({ node, box }) => {
+          const value = tidyLayerText(node.textContent ?? "");
+          return value && box.width > 1 && box.height > 1 && box.right >= x1 && box.left <= x2 && box.bottom >= y1 && box.top <= y2;
+        });
+      const text = tidyLayerText(pieces.map(({ node }) => node.textContent ?? "").join(" "));
+      if (!text) return false;
+      const rects = pieces.map(({ box }) => ({
+        x: Math.max(0, box.left - pageBox.left) / pageBox.width,
+        y: Math.max(0, box.top - pageBox.top) / pageBox.height,
+        w: Math.max(0, Math.min(box.right, pageBox.right) - Math.max(box.left, pageBox.left)) / pageBox.width,
+        h: Math.max(0, Math.min(box.bottom, pageBox.bottom) - Math.max(box.top, pageBox.top)) / pageBox.height,
+      }));
+      return showSelection(origin.stage, text, rects);
+    };
+
+    const onDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const stage = target?.closest<HTMLElement>("[data-page]") ?? null;
+      dragStart = stage && pagesRef.current?.contains(stage) ? { stage, x: event.clientX, y: event.clientY } : null;
+    };
+
     const onUp = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest(".sel-bar, .note-pop, .dropzone, .nav-left, .action-rail")) return;
+      const origin = dragStart;
+      dragStart = null;
+      if (target?.closest(".sel-bar, .note-pop, .tag-pop, .page-tag, .dropzone, .nav-left, .action-rail")) return;
+      if (captureTextSelection()) return;
+      if (origin && captureDragSelection(event, origin)) return;
       const stage = target?.closest<HTMLElement>("[data-page]");
       if (!stage || !pagesRef.current?.contains(stage)) return;
       const pageNumber = Number(stage.dataset.page);
-      const sel = window.getSelection();
-      const text = tidyLayerText(sel?.toString() ?? "");
-      if (text && sel && sel.rangeCount > 0) {
-        const range = sel.getRangeAt(0);
-        if (!stage.contains(range.commonAncestorContainer)) return;
-        const pageBox = stage.getBoundingClientRect();
-        const rects = [...range.getClientRects()]
-          .filter((r) => r.width > 1 && r.height > 1)
-          .map((r) => ({
-            x: (r.left - pageBox.left) / pageBox.width,
-            y: (r.top - pageBox.top) / pageBox.height,
-            w: r.width / pageBox.width,
-            h: r.height / pageBox.height,
-          }));
-        if (rects.length === 0) return;
-        const last = rects.at(-1);
-        const nearby = tidyLayerText(stage.querySelector(".textLayer")?.textContent ?? "");
-        const idx = nearby.indexOf(text);
-        const context = idx >= 0 ? nearby.slice(Math.max(0, idx - 280), idx + text.length + 280) : text;
-        setNoteOpen(false);
-        onSelect(null);
-        setSelection({
-          page: pageNumber,
-          text,
-          context,
-          rects,
-          x: last ? (last.x + last.w) * pageBox.width : 24,
-          y: last ? last.y * pageBox.height : 24,
-        });
-        return;
-      }
       const pageBox = stage.getBoundingClientRect();
       const x = (event.clientX - pageBox.left) / pageBox.width;
       const y = (event.clientY - pageBox.top) / pageBox.height;
@@ -433,10 +527,26 @@ export default function PdfPane({
       }
       setSelection(null);
       setNoteOpen(false);
+      setTagOpen(false);
       onSelect(null);
     };
+
+    const onSelectionChange = () => {
+      window.clearTimeout(selectionTimer);
+      selectionTimer = window.setTimeout(() => {
+        captureTextSelection();
+      }, 140);
+    };
+
+    document.addEventListener("mousedown", onDown);
     document.addEventListener("mouseup", onUp);
-    return () => document.removeEventListener("mouseup", onUp);
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => {
+      window.clearTimeout(selectionTimer);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("mouseup", onUp);
+      document.removeEventListener("selectionchange", onSelectionChange);
+    };
   }, [highlights, onSelect]);
 
   const mark = (style: MarkStyle, color = COLORS[0]) => {
@@ -447,7 +557,7 @@ export default function PdfPane({
   };
 
   useEffect(() => {
-    if (!selection || noteOpen) return;
+    if (!selection || noteOpen || tagOpen) return;
     const onKey = (event: KeyboardEvent) => {
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
@@ -464,6 +574,9 @@ export default function PdfPane({
       } else if (key === "n") {
         event.preventDefault();
         openNote();
+      } else if (key === "b") {
+        event.preventDefault();
+        openTag();
       } else if (key === "t") {
         event.preventDefault();
         onTranslate(selection);
@@ -478,18 +591,43 @@ export default function PdfPane({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection, noteOpen]);
+  }, [selection, noteOpen, tagOpen]);
 
   const openNote = () => {
     if (selection) {
       setNoteDraft("");
       setNoteOpen(true);
+      setTagOpen(false);
       return;
     }
     if (active) {
       setNoteDraft(active.note ?? "");
       setNoteOpen(true);
     }
+  };
+
+  const openTag = () => {
+    setTagDraft(active?.kind === "tag" ? active.label ?? "" : "");
+    setTagOpen(true);
+    setNoteOpen(false);
+  };
+
+  const saveTag = () => {
+    const label = tagDraft.trim();
+    if (!label) return;
+    if (active?.kind === "tag") {
+      onUpdate(active.id, { label });
+    } else if (selection) {
+      onMark(selection, {
+        kind: "tag",
+        label,
+        style: "underline",
+        color: COLORS[2],
+      });
+    }
+    window.getSelection()?.removeAllRanges();
+    setSelection(null);
+    setTagOpen(false);
   };
 
   const saveNote = () => {
@@ -633,6 +771,20 @@ export default function PdfPane({
       </aside>
 
       <div ref={pagesRef} className="reader">
+        {pdf && (
+          <div className="reader-tools" aria-label="PDF 阅读工具">
+            <button className="tiny" onClick={() => setZoom((value) => Math.max(0.75, value - 0.125))}>
+              −
+            </button>
+            <button className="zoom-value" onClick={() => setZoom(1)} title="适合宽度">
+              {Math.round(zoom * 100)}%
+            </button>
+            <button className="tiny" onClick={() => setZoom((value) => Math.min(1.75, value + 0.125))}>
+              +
+            </button>
+            <span>拖选文字后可高亮、划线、备注或添加标签</span>
+          </div>
+        )}
         {!sourcePath && (
           <div className="dropzone">
             <h2>把 PDF 拖进来</h2>
@@ -665,13 +817,14 @@ export default function PdfPane({
               key={i + 1}
               pdf={pdf}
               pageNumber={i + 1}
-              cssWidth={paneWidth}
+              cssWidth={paneWidth * zoom}
               metric={metric}
               highlights={highlights}
               activeId={activeId}
+              onSelect={(id) => onSelect(id)}
             />
           ))}
-        {selection && !noteOpen && overlayStage && (
+        {selection && !noteOpen && !tagOpen && overlayStage && (
           <ActionRail
             selection={selection}
             handedness={handedness}
@@ -681,6 +834,7 @@ export default function PdfPane({
             stageHeight={overlayBox.h}
             onMark={(style, color) => mark(style, color)}
             onNote={openNote}
+            onTag={openTag}
             onTranslate={() => {
               onTranslate(selection);
               setSelection(null);
@@ -690,6 +844,44 @@ export default function PdfPane({
               setSelection(null);
             }}
           />
+        )}
+        {tagOpen && (selection || active?.kind === "tag") && overlayStage && (
+          <div
+            className="tag-pop"
+            style={{
+              position: "absolute",
+              left: overlayStage.offsetLeft + Math.max(8, popX - 80),
+              top: overlayStage.offsetTop + popY,
+            }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <b>{active?.kind === "tag" ? "编辑标签" : "给这里加标签"}</b>
+            <p className="quote">{(active?.text ?? selection?.text ?? "").slice(0, 120)}</p>
+            <input
+              value={tagDraft}
+              placeholder="例如：核心结论、待复习、案例"
+              maxLength={24}
+              onChange={(event) => setTagDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") saveTag();
+                if (event.key === "Escape") setTagOpen(false);
+              }}
+              autoFocus
+            />
+            <div className="note-actions">
+              <button className="solid" onClick={saveTag} disabled={!tagDraft.trim()}>
+                保存标签
+              </button>
+              {active?.kind === "tag" && (
+                <button className="ghost" onClick={() => onDelete(active.id)}>
+                  删除
+                </button>
+              )}
+              <button className="ghost" onClick={() => setTagOpen(false)}>
+                取消
+              </button>
+            </div>
+          </div>
         )}
         {noteOpen && (selection || active) && overlayStage && (
           <div

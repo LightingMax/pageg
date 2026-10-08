@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AcpStatus, AgentInfo, AppSettings, BookRecord, Highlight, ReaderTurn } from "../lib/types";
 
-type Tab = "marks" | "notes" | "ai" | "glossary";
+type Tab = "marks" | "tags" | "notes" | "ai" | "glossary";
 
 type Props = {
   book: BookRecord | null;
@@ -29,6 +29,7 @@ const kindLabel: Record<string, string> = {
   note: "备注",
   translate: "翻译",
   explain: "解释",
+  tag: "标签",
 };
 
 export default function SidePanel({
@@ -53,7 +54,11 @@ export default function SidePanel({
 }: Props) {
   const [tab, setTab] = useState<Tab>("marks");
   const [question, setQuestion] = useState("");
-  const marks = [...(book?.highlights ?? [])].sort((a, b) => a.page - b.page || a.createdAt.localeCompare(b.createdAt));
+  const sorted = [...(book?.highlights ?? [])].sort(
+    (a, b) => a.page - b.page || a.createdAt.localeCompare(b.createdAt),
+  );
+  const marks = sorted.filter((mark) => mark.kind !== "tag");
+  const tags = sorted.filter((mark) => mark.kind === "tag");
 
   useEffect(() => {
     if (aiTick > 0) setTab("ai");
@@ -64,6 +69,10 @@ export default function SidePanel({
       <div className="tabs">
         <button className={tab === "marks" ? "active" : ""} onClick={() => setTab("marks")}>
           标注
+        </button>
+        <button className={tab === "tags" ? "active" : ""} onClick={() => setTab("tags")}>
+          标签
+          {tags.length > 0 && <span className="tab-count">{tags.length}</span>}
         </button>
         <button className={tab === "notes" ? "active" : ""} onClick={() => setTab("notes")}>
           笔记
@@ -95,6 +104,30 @@ export default function SidePanel({
                   </span>
                 </button>
                 <button className="tiny" onClick={() => onDeleteMark(mark.id)}>
+                  删除
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {tab === "tags" && (
+        <>
+          <p className="hint">标签是书里的路标。点击标签会直接回到对应页和原文位置。</p>
+          {tags.length === 0 && <p className="empty">划选一段文字，再点“标签”即可创建。</p>}
+          <div className="tag-list">
+            {tags.map((tag) => (
+              <div key={tag.id} className={`tag-item ${tag.id === activeId ? "active" : ""}`}>
+                <button className="tag-body" onClick={() => onJump(tag)}>
+                  <span className="tag-ribbon" style={{ background: tag.color }} />
+                  <span>
+                    <b>{tag.label || "未命名标签"}</b>
+                    <small>第 {tag.page} 页</small>
+                    <em>{tag.text}</em>
+                  </span>
+                </button>
+                <button className="tiny" onClick={() => onDeleteMark(tag.id)} aria-label={`删除标签 ${tag.label ?? ""}`}>
                   删除
                 </button>
               </div>

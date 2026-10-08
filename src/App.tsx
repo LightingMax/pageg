@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import DeskHome from "./components/DeskHome";
 import PdfPane from "./components/PdfPane";
 import SidePanel from "./components/SidePanel";
 import SetupPage from "./components/SetupPage";
@@ -200,6 +201,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!book) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (window.getSelection()?.toString().trim()) return;
@@ -209,7 +211,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pageCount]);
+  }, [book, pageCount]);
 
   useEffect(() => {
     const onDragOver = (e: DragEvent) => {
@@ -283,6 +285,49 @@ export default function App() {
     await openFromLibrary(remaining[remaining.length - 1]);
   };
 
+  const createShelf = async (name: string) => {
+    try {
+      setCatalog((await window.pageg.createShelf(name)) as Catalog);
+    } catch (err) {
+      setError(asError(err));
+    }
+  };
+
+  const renameShelf = async (id: string, name: string) => {
+    try {
+      setCatalog((await window.pageg.renameShelf(id, name)) as Catalog);
+    } catch (err) {
+      setError(asError(err));
+    }
+  };
+
+  const deleteShelf = async (id: string) => {
+    try {
+      setCatalog((await window.pageg.deleteShelf(id)) as Catalog);
+      if (settings.currentShelf === id) {
+        setSettings((prev) => ({ ...prev, currentShelf: "" }));
+      }
+    } catch (err) {
+      setError(asError(err));
+    }
+  };
+
+  const moveBook = async (bookId: string, shelfId: string) => {
+    try {
+      let next = catalog;
+      for (const shelf of catalog.shelves) {
+        if (shelf.bookIds.includes(bookId)) {
+          next = (await window.pageg.assignBook(shelf.id, bookId, false)) as Catalog;
+        }
+      }
+      if (shelfId) next = (await window.pageg.assignBook(shelfId, bookId, true)) as Catalog;
+      setCatalog(next);
+    } catch (err) {
+      setError(asError(err));
+      await refreshLibrary();
+    }
+  };
+
   const addHighlight = (sel: SelectionPayload, options: MarkOptions = {}) => {
     const mark: Highlight = {
       id: crypto.randomUUID(),
@@ -290,6 +335,7 @@ export default function App() {
       text: sel.text,
       color: options.color ?? "#e8c56b",
       note: options.note,
+      label: options.label,
       rects: sel.rects,
       createdAt: new Date().toISOString(),
       kind: options.kind ?? "mark",
@@ -439,26 +485,26 @@ export default function App() {
   );
 
   return (
-    <div className={`app ${dragging ? "dragging" : ""}`}>
-      {dragging && <div className="drop-overlay">松开即可导入 PDF</div>}
+    <div className={`app ${book ? "reading-mode" : "home-mode"} ${dragging ? "dragging" : ""}`}>
+      {dragging && book && <div className="drop-overlay">松开即可导入 PDF</div>}
       {error && (
         <button className="banner-error" onClick={() => setError(null)}>
           {error}
         </button>
       )}
       <header className="topbar">
-        <div className="brand">
+        <button className="brand" type="button" onClick={() => setBook(null)} title="回到我的书桌">
           <b>PAGEG</b>
           <span>本地阅读 · 按需智能</span>
-        </div>
+        </button>
         <div className="pager">
-          <button className="tiny" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+          <button className="tiny" disabled={!book || page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
             上一页
           </button>
-          <span className="hint">{book ? pageLabel : "未打开"}</span>
+          <span className="hint">{book ? pageLabel : "我的书桌"}</span>
           <button
             className="tiny"
-            disabled={page >= pageCount}
+            disabled={!book || page >= pageCount}
             onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
           >
             下一页
@@ -483,16 +529,19 @@ export default function App() {
         </div>
       </header>
 
-      <TabBar
-        tabs={tabs}
-        activeId={book?.id}
-        onOpen={(id) => void openFromLibrary(id)}
-        onClose={(id) => void closeTab(id)}
-        onImport={() => void openFromDialog()}
-      />
+      {book && (
+        <TabBar
+          tabs={tabs}
+          activeId={book.id}
+          onOpen={(id) => void openFromLibrary(id)}
+          onClose={(id) => void closeTab(id)}
+          onImport={() => void openFromDialog()}
+        />
+      )}
 
-      <div className="shell">
-        <PdfPane
+      {book ? (
+        <div className="shell">
+          <PdfPane
           sourcePath={book?.sourcePath ?? null}
           page={page}
           highlights={book?.highlights ?? []}
@@ -508,9 +557,7 @@ export default function App() {
           catalog={catalog}
           currentShelf={settings.currentShelf}
           onSelectShelf={(id) => setSettings((prev) => ({ ...prev, currentShelf: id }))}
-          onCreateShelf={(name) => {
-            void window.pageg.createShelf(name).then((next) => setCatalog(next as Catalog));
-          }}
+          onCreateShelf={(name) => void createShelf(name)}
           onAssignBook={(shelfId, on) => {
             if (!book) return;
             void window.pageg.assignBook(shelfId, book.id, on).then((next) => setCatalog(next as Catalog));
@@ -522,9 +569,9 @@ export default function App() {
           onUpdate={updateHighlight}
           onDelete={deleteHighlight}
           onSelect={setActiveId}
-        />
+          />
 
-        <SidePanel
+          <SidePanel
           book={book}
           agents={agents}
           settings={settings}
@@ -546,8 +593,22 @@ export default function App() {
             setActiveId(mark.id);
           }}
           onDeleteMark={deleteHighlight}
+          />
+        </div>
+      ) : (
+        <DeskHome
+          library={library}
+          catalog={catalog}
+          dragging={dragging}
+          onOpenBook={(id) => void openFromLibrary(id)}
+          onImport={() => void openFromDialog()}
+          onUploadFile={(file) => void openFromFile(file)}
+          onCreateShelf={(name) => void createShelf(name)}
+          onRenameShelf={(id, name) => void renameShelf(id, name)}
+          onDeleteShelf={(id) => void deleteShelf(id)}
+          onMoveBook={(bookId, shelfId) => void moveBook(bookId, shelfId)}
         />
-      </div>
+      )}
 
       <SetupPage
         open={setupOpen}

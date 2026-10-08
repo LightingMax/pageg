@@ -13,6 +13,8 @@ pub struct Highlight {
     pub text: String,
     pub color: String,
     pub note: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
     pub rects: Vec<Rect>,
     #[serde(rename = "createdAt")]
     pub created_at: String,

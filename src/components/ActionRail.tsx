@@ -5,16 +5,18 @@ const COLORS = ["#e8c56b", "#8fbf6a", "#e8a0b3", "#7eb6d9"];
 const ACTIONS: Array<{
   id: string;
   label: string;
+  icon: string;
   key: string;
-  run: "highlight" | "underline" | "strike" | "note" | "translate" | "explain";
+  run: "highlight" | "underline" | "strike" | "note" | "tag" | "translate" | "explain";
   style?: MarkStyle;
 }> = [
-  { id: "highlight", label: "高亮", key: "H", run: "highlight", style: "highlight" },
-  { id: "underline", label: "下划线", key: "U", run: "underline", style: "underline" },
-  { id: "strike", label: "删除线", key: "S", run: "strike", style: "strike" },
-  { id: "note", label: "备注", key: "N", run: "note" },
-  { id: "translate", label: "翻译", key: "T", run: "translate" },
-  { id: "explain", label: "解释", key: "E", run: "explain" },
+  { id: "highlight", label: "高亮", icon: "▰", key: "H", run: "highlight", style: "highlight" },
+  { id: "underline", label: "下划线", icon: "U̲", key: "U", run: "underline", style: "underline" },
+  { id: "strike", label: "删除线", icon: "S̶", key: "S", run: "strike", style: "strike" },
+  { id: "note", label: "备注", icon: "✎", key: "N", run: "note" },
+  { id: "tag", label: "标签", icon: "⌑", key: "B", run: "tag" },
+  { id: "translate", label: "翻译", icon: "译", key: "T", run: "translate" },
+  { id: "explain", label: "解释", icon: "?", key: "E", run: "explain" },
 ];
 
 type Props = {
@@ -26,6 +28,7 @@ type Props = {
   stageHeight: number;
   onMark: (style: MarkStyle, color?: string) => void;
   onNote: () => void;
+  onTag: () => void;
   onTranslate: () => void;
   onExplain: () => void;
 };
@@ -39,20 +42,23 @@ export default function ActionRail({
   stageHeight,
   onMark,
   onNote,
+  onTag,
   onTranslate,
   onExplain,
 }: Props) {
   const first = selection.rects[0];
   const last = selection.rects.at(-1) ?? first;
-  const railW = 156;
-  const rightX = stageLeft + (last ? (last.x + last.w) * stageWidth : selection.x) + 12;
-  const leftX = stageLeft + (first ? first.x * stageWidth : 24) - railW - 12;
-  const rawX = handedness === "right" ? rightX : leftX;
-  const left = Math.max(8, Math.min(rawX, stageLeft + stageWidth - railW));
-  const top = Math.max(8, stageTop + (first ? first.y * stageHeight : selection.y));
+  const railW = Math.min(620, stageWidth - 16);
+  const anchorX = handedness === "right"
+    ? stageLeft + (last ? (last.x + last.w) * stageWidth : selection.x)
+    : stageLeft + (first ? first.x * stageWidth : selection.x);
+  const left = Math.max(stageLeft + 8, Math.min(anchorX - railW / 2, stageLeft + stageWidth - railW - 8));
+  const selectionTop = stageTop + (first ? first.y * stageHeight : selection.y);
+  const top = Math.max(stageTop + 8, selectionTop - 62);
 
   const fire = (run: (typeof ACTIONS)[number]["run"], style?: MarkStyle) => {
     if (run === "note") onNote();
+    else if (run === "tag") onTag();
     else if (run === "translate") onTranslate();
     else if (run === "explain") onExplain();
     else if (style) onMark(style);
@@ -61,7 +67,7 @@ export default function ActionRail({
   return (
     <div
       className={`action-rail ${handedness}`}
-      style={{ left, top }}
+      style={{ left, top, width: railW }}
       onMouseDown={(e) => e.preventDefault()}
     >
       <div className="color-dots">
@@ -82,6 +88,7 @@ export default function ActionRail({
           style={{ animationDelay: `${40 + index * 45}ms` }}
           onClick={() => fire(action.run, action.style)}
         >
+          <span className="action-icon">{action.icon}</span>
           <span>{action.label}</span>
           <kbd>{action.key}</kbd>
         </button>

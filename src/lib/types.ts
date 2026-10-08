@@ -7,9 +7,10 @@ export type Highlight = {
   text: string;
   color: string;
   note?: string;
+  label?: string;
   rects: Array<{ x: number; y: number; w: number; h: number }>;
   createdAt: string;
-  kind?: "mark" | "translate" | "explain" | "note";
+  kind?: "mark" | "translate" | "explain" | "note" | "tag";
   style?: MarkStyle;
 };
 
@@ -83,6 +84,7 @@ export type SelectionPayload = {
 export type MarkOptions = {
   kind?: Highlight["kind"];
   note?: string;
+  label?: string;
   color?: string;
   style?: MarkStyle;
 };
