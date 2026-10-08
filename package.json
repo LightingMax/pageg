@@ -7,6 +7,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "bundle:mac": "tauri build --bundles app,dmg",
+    "bundle:windows": "tauri build --bundles nsis",
+    "bundle:linux": "tauri build --bundles appimage,deb",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",

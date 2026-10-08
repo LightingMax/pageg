@@ -1,5 +1,5 @@
-use sha1::{Digest, Sha1};
 use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
@@ -95,9 +95,7 @@ fn now_iso() -> String {
 }
 
 pub fn data_root(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())
+    app.path().app_data_dir().map_err(|e| e.to_string())
 }
 
 pub fn vault_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -386,7 +384,12 @@ pub fn delete_shelf(app: &AppHandle, id: &str) -> Result<Catalog, String> {
     Ok(catalog)
 }
 
-pub fn assign_book(app: &AppHandle, shelf_id: &str, book_id: &str, on: bool) -> Result<Catalog, String> {
+pub fn assign_book(
+    app: &AppHandle,
+    shelf_id: &str,
+    book_id: &str,
+    on: bool,
+) -> Result<Catalog, String> {
     let mut catalog = read_catalog(app)?;
     let shelf = catalog
         .shelves

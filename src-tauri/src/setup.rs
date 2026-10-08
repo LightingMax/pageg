@@ -47,6 +47,9 @@ pub struct CursorStatus {
 
 #[derive(Clone, Serialize)]
 pub struct DiagnoseReport {
+    pub platform: String,
+    #[serde(rename = "terminalName")]
+    pub terminal_name: String,
     pub tools: Vec<Probe>,
     pub agents: Vec<Probe>,
     pub steps: Vec<SetupStep>,
@@ -68,6 +71,28 @@ pub fn install_command() -> &'static str {
         "irm 'https://cursor.com/install?win32=true' | iex"
     } else {
         "curl https://cursor.com/install -fsS | bash"
+    }
+}
+
+fn platform_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macOS"
+    } else if cfg!(windows) {
+        "Windows"
+    } else if cfg!(target_os = "linux") {
+        "Linux"
+    } else {
+        "当前系统"
+    }
+}
+
+fn terminal_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Terminal"
+    } else if cfg!(windows) {
+        "PowerShell"
+    } else {
+        "终端"
     }
 }
 
@@ -236,7 +261,9 @@ pub async fn diagnose() -> DiagnoseReport {
                 Some("cursor") => {
                     "会自动连 Cursor，并用 ACP authenticate 吃掉本机已有登录，不会弹登录窗。".into()
                 }
-                Some("codex") => "Cursor CLI 还没有，将直接连 Codex（复用 ~/.codex/auth.json）。".into(),
+                Some("codex") => {
+                    "Cursor CLI 还没有，将直接连 Codex（复用 ~/.codex/auth.json）。".into()
+                }
                 _ => "装好 Cursor CLI 或保证 Codex 已登录后即可连接。".into(),
             },
             action: Some("connect".into()),
@@ -252,6 +279,8 @@ pub async fn diagnose() -> DiagnoseReport {
     );
 
     DiagnoseReport {
+        platform: platform_name().into(),
+        terminal_name: terminal_name().into(),
         tools: vec![editor, cli, node, npm, npx, claude, codex, gemini, opencode],
         agents,
         steps,
@@ -281,7 +310,8 @@ fn verdict(
     if npx.found && codex_logged_in {
         return (
             "Cursor CLI 还没装，但 Codex 已经登录。会直接连 Codex，不用再登一次。".into(),
-            "凭据在 ~/.codex/auth.json，Codeg / Codex CLI / Pageg 共用。想用 Cursor 时再装 CLI。".into(),
+            "凭据在 ~/.codex/auth.json，Codeg / Codex CLI / Pageg 共用。想用 Cursor 时再装 CLI。"
+                .into(),
         );
     }
     if recommended == Some("codex") {
@@ -294,7 +324,8 @@ fn verdict(
         return (
             "有 Cursor 编辑器，但没有 Cursor CLI，也没有检测到可复用的 Codex 登录。".into(),
             format!(
-                "装 Cursor CLI 之后会自动复用 CLI 登录。Windows：{}",
+                "装 Cursor CLI 之后会自动复用 CLI 登录。{}：{}",
+                platform_name(),
                 install_command()
             ),
         );
@@ -302,7 +333,8 @@ fn verdict(
     if node.found {
         return (
             "找到了 Node，但还没有可复用的智能体登录。".into(),
-            "若 Codex 已在终端登录，重新检测；否则先在终端登录一次 Codex 或安装 Cursor CLI。".into(),
+            "若 Codex 已在终端登录，重新检测；否则先在终端登录一次 Codex 或安装 Cursor CLI。"
+                .into(),
         );
     }
     (
@@ -324,7 +356,8 @@ pub fn detect_local_logins() -> Vec<Probe> {
         login_probe(
             "cursor",
             "Cursor CLI",
-            home.as_ref().map(|h| h.join(".cursor").join("cli-config.json")),
+            home.as_ref()
+                .map(|h| h.join(".cursor").join("cli-config.json")),
         ),
         login_probe(
             "codex",
@@ -334,7 +367,8 @@ pub fn detect_local_logins() -> Vec<Probe> {
         login_probe(
             "claude",
             "Claude",
-            home.as_ref().map(|h| h.join(".claude").join(".credentials.json")),
+            home.as_ref()
+                .map(|h| h.join(".claude").join(".credentials.json")),
         ),
     ]
 }
@@ -418,7 +452,14 @@ fn json_has_credential_field(value: &Value) -> bool {
     }
 }
 
-fn agent_probe(id: &str, name: &str, found: bool, path: Option<String>, kind: &str, detail: &str) -> Probe {
+fn agent_probe(
+    id: &str,
+    name: &str,
+    found: bool,
+    path: Option<String>,
+    kind: &str,
+    detail: &str,
+) -> Probe {
     Probe {
         id: id.into(),
         name: name.into(),
@@ -437,12 +478,22 @@ async fn probe_cursor_editor() -> Probe {
             return probe;
         }
     }
-    let extras = [
-        std::env::var_os("LOCALAPPDATA").map(|p| Path::new(&p).join("Programs").join("cursor").join("Cursor.exe")),
+    let mut extras = vec![
+        std::env::var_os("LOCALAPPDATA").map(|p| {
+            Path::new(&p)
+                .join("Programs")
+                .join("cursor")
+                .join("Cursor.exe")
+        }),
         std::env::var_os("ProgramFiles").map(|p| Path::new(&p).join("cursor").join("Cursor.exe")),
     ];
+    #[cfg(target_os = "macos")]
+    {
+        extras.push(Some(PathBuf::from("/Applications/Cursor.app")));
+        extras.push(user_home().map(|home| home.join("Applications").join("Cursor.app")));
+    }
     for path in extras.into_iter().flatten() {
-        if path.is_file() {
+        if path.exists() {
             return Probe {
                 id: "cursor-editor".into(),
                 name: "Cursor 编辑器".into(),
@@ -527,7 +578,10 @@ async fn cursor_auth(cli_path: &str) -> (bool, Option<String>) {
         return (ok, email);
     }
     let lower = blob.to_lowercase();
-    if lower.contains("not logged") || lower.contains("unauthenticated") || lower.contains("please log in") {
+    if lower.contains("not logged")
+        || lower.contains("unauthenticated")
+        || lower.contains("please log in")
+    {
         return (false, None);
     }
     if lower.contains("logged in") || lower.contains("authenticated") {
@@ -565,7 +619,10 @@ struct CliOutput {
 
 async fn run_cli(path: &str, args: &[&str], secs: u64) -> Option<CliOutput> {
     let mut cmd = spawn_probe(path, args);
-    let output = timeout(Duration::from_secs(secs), cmd.output()).await.ok()?.ok()?;
+    let output = timeout(Duration::from_secs(secs), cmd.output())
+        .await
+        .ok()?
+        .ok()?;
     Some(CliOutput {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
@@ -597,10 +654,15 @@ fn looks_like_script(command: &str) -> bool {
 }
 
 pub async fn warmup(agent_id: &str) -> Result<String, String> {
-    let agent = registry::resolve(agent_id, None).ok_or_else(|| format!("未知智能体：{agent_id}"))?;
-    if agent_id == "cursor" && find_command("agent").is_none() && find_command("cursor-agent").is_none() {
+    let agent =
+        registry::resolve(agent_id, None).ok_or_else(|| format!("未知智能体：{agent_id}"))?;
+    if agent_id == "cursor"
+        && find_command("agent").is_none()
+        && find_command("cursor-agent").is_none()
+    {
         return Err(format!(
-            "还没有 Cursor CLI。点「安装 Cursor CLI」，或在 PowerShell 运行：{}",
+            "还没有 Cursor CLI。点「安装 Cursor CLI」，或在{}运行：{}",
+            terminal_name(),
             install_command()
         ));
     }
@@ -629,7 +691,11 @@ pub async fn warmup(agent_id: &str) -> Result<String, String> {
     Err(format!(
         "{} 预热失败：{}",
         agent.name,
-        stderr.lines().next().or_else(|| stdout.lines().next()).unwrap_or("未知错误")
+        stderr
+            .lines()
+            .next()
+            .or_else(|| stdout.lines().next())
+            .unwrap_or("未知错误")
     ))
 }
 
@@ -640,7 +706,10 @@ pub fn install_cursor_cli() -> Result<String, String> {
             install_command()
         )
     } else {
-        format!("echo 'Installing Cursor CLI'; {}; echo 'Close this window, then click Re-check in Pageg.'", install_command())
+        format!(
+            "echo '正在安装 Cursor CLI…'; {}; echo ''; echo '安装完成后回到 Pageg，点「重新检测」。'",
+            install_command()
+        )
     };
     open_visible_shell(&script)?;
     Ok("已打开安装窗口。装完后回到 Pageg，点「重新检测」。".into())
@@ -651,13 +720,14 @@ pub fn open_cursor_login() -> Result<String, String> {
         .or_else(|| find_command("cursor-agent"))
         .or_else(|| find_command("cursor-agent.cmd"))
         .ok_or_else(|| "还没装 Cursor CLI，先点「安装 Cursor CLI」。".to_string())?;
-    let escaped = bin.replace('\'', "''");
     let script = if cfg!(windows) {
+        let escaped = bin.replace('\'', "''");
         format!(
             "Write-Host '登录 Cursor CLI：{escaped}'; & '{escaped}' login; Write-Host ''; Write-Host '登录完成后关闭此窗口，回到 Pageg 点「重新检测」。'"
         )
     } else {
-        format!("'{escaped}' login; echo 'Close this window, then click Re-check in Pageg.'")
+        let escaped = shell_quote(&bin);
+        format!("{escaped} login; echo ''; echo '登录完成后回到 Pageg，点「重新检测」。'")
     };
     open_visible_shell(&script)?;
     Ok("已打开登录窗口。完成后回到这里点「重新检测」。".into())
@@ -679,9 +749,66 @@ fn open_visible_shell(script: &str) -> Result<(), String> {
             .map_err(|e| format!("打不开终端窗口：{e}"))?;
         Ok(())
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = std::env::temp_dir().join(format!("pageg-{}.command", uuid::Uuid::new_v4()));
+        let contents = format!(
+            "#!/bin/zsh\nrm -f -- \"$0\"\n{script}\nprintf '\\n可以关闭此窗口。\\n'\nexec /bin/zsh -l\n"
+        );
+        std::fs::write(&path, contents).map_err(|e| format!("无法创建终端脚本：{e}"))?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("无法设置终端脚本权限：{e}"))?;
+        std::process::Command::new("open")
+            .args(["-a", "Terminal"])
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("打不开 Terminal：{e}"))?;
+        Ok(())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        for (terminal, args) in [
+            ("x-terminal-emulator", vec!["-e", "/bin/sh", "-lc", script]),
+            ("gnome-terminal", vec!["--", "/bin/sh", "-lc", script]),
+        ] {
+            if std::process::Command::new(terminal)
+                .args(args)
+                .spawn()
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+        Err("打不开图形终端，请复制安装命令后手动运行。".into())
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         let _ = script;
-        Err("当前平台请在终端手动运行安装/登录命令。".into())
+        Err("当前平台请复制命令后在终端运行。".into())
+    }
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_paths_with_apostrophes_are_quoted() {
+        assert_eq!(
+            shell_quote("/Users/O'Brien/bin"),
+            "'/Users/O'\\''Brien/bin'"
+        );
+    }
+
+    #[test]
+    fn reports_a_desktop_platform() {
+        assert!(["macOS", "Windows", "Linux", "当前系统"].contains(&platform_name()));
+        assert!(!terminal_name().is_empty());
     }
 }

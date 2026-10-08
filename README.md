@@ -13,7 +13,33 @@ Codeg 也是这样分层的：
 
 高性能用在该用的地方：agent 子进程和磁盘，不是每一帧 canvas。
 
+## 技术路线
+
+Pageg 的跨平台边界由 Tauri 负责：同一套 Rust 核心分别编译为 macOS、Windows 和 Linux 原生程序，React/pdf.js 界面运行在系统 WebView 中。Rust 负责本地文件、书库、智能体进程和 ACP 通信；React/pdf.js 负责 PDF 渲染、文本选区、标注和交互。这样既保留原生安装包和较小体积，也不用分别维护三套阅读界面。
+
+桌面应用从 Finder、开始菜单或应用启动器打开时，通常拿不到终端的完整 `PATH`。Pageg 会补充各系统的常用 CLI 目录；macOS 还会识别 Homebrew、NVM、fnm、Volta、Cargo 和用户目录中的 Cursor CLI。
+
 ## 本机怎么跑
+
+macOS 需要：
+
+1. Xcode Command Line Tools：`xcode-select --install`
+2. Rust stable（推荐 rustup）
+3. Node.js 22+
+
+```bash
+cd pageg
+npm ci
+npm run tauri dev
+```
+
+生成可双击安装的 macOS 应用和 DMG：
+
+```bash
+npm run bundle:mac
+```
+
+产物位于 `src-tauri/target/release/bundle/`。Apple Silicon 和 Intel Mac 分别在对应机器上构建，或给 rustup 安装另一架构 target 后交叉构建。
 
 Windows 需要：
 
@@ -24,9 +50,11 @@ Windows 需要：
 
 ```bash
 cd pageg
-npm install
+npm ci
 npm run tauri dev
 ```
+
+Linux 使用同一套代码，需安装发行版对应的 WebKitGTK/Tauri 系统依赖，然后运行 `npm run bundle:linux`。
 
 第一次编译 Rust 依赖会比较久。打开一本 PDF → 右侧 AI 面板点「连接 Agent」→ 划线后点翻译或解释。
 

@@ -115,6 +115,8 @@ export type CursorStatus = {
 };
 
 export type DiagnoseReport = {
+  platform: string;
+  terminalName: string;
   tools: Probe[];
   agents: Probe[];
   steps: SetupStep[];

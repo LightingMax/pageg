@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 #[derive(Clone, Serialize)]
@@ -100,7 +101,10 @@ pub fn resolve(id: &str, custom_command: Option<&str>) -> Option<AgentDefinition
             "Claude Code",
             "Anthropic Claude via @agentclientprotocol/claude-agent-acp",
             "npx".to_string(),
-            vec!["-y".into(), "@agentclientprotocol/claude-agent-acp@0.79.0".into()],
+            vec![
+                "-y".into(),
+                "@agentclientprotocol/claude-agent-acp@0.79.0".into(),
+            ],
         ),
         "gemini" => (
             "Gemini",
@@ -142,23 +146,90 @@ pub fn extra_search_dirs() -> Vec<PathBuf> {
     if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
         let home = PathBuf::from(home);
         dirs.push(home.join(".local").join("bin"));
+        dirs.push(home.join(".cargo").join("bin"));
         dirs.push(home.join(".cursor").join("bin"));
-        dirs.push(home.join("AppData").join("Roaming").join("npm"));
-        dirs.push(home.join("AppData").join("Local").join("fnm"));
-        dirs.push(home.join(".cursor"));
+        dirs.push(home.join(".volta").join("bin"));
+        dirs.push(home.join(".bun").join("bin"));
+        dirs.push(home.join("Library").join("pnpm"));
+
+        add_versioned_bin_dirs(
+            &mut dirs,
+            &home.join(".nvm").join("versions").join("node"),
+            "bin",
+        );
+        add_versioned_bin_dirs(
+            &mut dirs,
+            &home
+                .join(".local")
+                .join("share")
+                .join("fnm")
+                .join("node-versions"),
+            "installation/bin",
+        );
+
+        #[cfg(target_os = "macos")]
+        {
+            dirs.push(
+                home.join("Applications")
+                    .join("Cursor.app")
+                    .join("Contents")
+                    .join("Resources")
+                    .join("app")
+                    .join("bin"),
+            );
+        }
+
+        #[cfg(windows)]
+        {
+            dirs.push(home.join("AppData").join("Roaming").join("npm"));
+            dirs.push(home.join("AppData").join("Local").join("fnm"));
+            dirs.push(home.join(".cursor"));
+        }
     }
+
+    #[cfg(target_os = "macos")]
+    {
+        dirs.extend([
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/opt/homebrew/sbin"),
+            PathBuf::from("/usr/local/bin"),
+            PathBuf::from("/usr/local/sbin"),
+            PathBuf::from("/Applications/Cursor.app/Contents/Resources/app/bin"),
+        ]);
+    }
+
+    #[cfg(windows)]
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {
         let local = PathBuf::from(local);
         dirs.push(local.join("Programs").join("cursor"));
         dirs.push(local.join("cursor-agent"));
         dirs.push(local.join("fnm"));
     }
+
+    #[cfg(windows)]
     if let Some(pf) = std::env::var_os("ProgramFiles") {
         let pf = PathBuf::from(pf);
         dirs.push(pf.join("nodejs"));
         dirs.push(pf.join("cursor").join("resources").join("app").join("bin"));
     }
-    dirs
+
+    let mut seen = HashSet::new();
+    dirs.into_iter()
+        .filter(|path| seen.insert(path.clone()))
+        .collect()
+}
+
+fn add_versioned_bin_dirs(dirs: &mut Vec<PathBuf>, root: &std::path::Path, suffix: &str) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    let mut paths = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join(suffix))
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    paths.sort_by(|a, b| b.cmp(a));
+    dirs.extend(paths);
 }
 
 pub fn find_command(name: &str) -> Option<String> {
@@ -219,7 +290,22 @@ pub fn user_home() -> Option<PathBuf> {
 pub fn apply_user_env(cmd: &mut tokio::process::Command) {
     if let Some(home) = user_home() {
         cmd.env("HOME", &home);
+        #[cfg(windows)]
         cmd.env("USERPROFILE", &home);
     }
     cmd.env("PATH", path_with_extras());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_gui_path_includes_standard_package_managers() {
+        let dirs = extra_search_dirs();
+        assert!(dirs.contains(&PathBuf::from("/opt/homebrew/bin")));
+        assert!(dirs.contains(&PathBuf::from("/usr/local/bin")));
+        assert!(dirs.iter().any(|path| path.ends_with(".cargo/bin")));
+    }
 }

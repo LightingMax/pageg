@@ -1,4 +1,4 @@
-use crate::registry::{self, AgentDefinition, apply_user_env};
+use crate::registry::{self, apply_user_env, AgentDefinition};
 use crate::vault;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -267,10 +267,7 @@ impl AcpHost {
         let session = guard.as_ref().ok_or("ACP session is not ready")?;
         session
             .io
-            .notify(
-                "session/cancel",
-                json!({ "sessionId": session.session_id }),
-            )
+            .notify("session/cancel", json!({ "sessionId": session.session_id }))
             .await
     }
 }
@@ -490,7 +487,9 @@ fn spawn_command(command: &str, args: &[String]) -> Command {
 
 fn looks_like_script(command: &str) -> bool {
     let lower = command.to_lowercase();
-    lower.ends_with(".cmd") || lower.ends_with(".bat") || (!Path::new(command).is_absolute() && !lower.ends_with(".exe"))
+    lower.ends_with(".cmd")
+        || lower.ends_with(".bat")
+        || (!Path::new(command).is_absolute() && !lower.ends_with(".exe"))
 }
 
 async fn read_stderr(app: AppHandle, stderr: tokio::process::ChildStderr) {
@@ -550,7 +549,10 @@ async fn read_stdout(
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
                 let kind = session_update.as_deref().unwrap_or("");
-                if kind == "agent_thought_chunk" || kind == "tool_call" || kind == "tool_call_update" {
+                if kind == "agent_thought_chunk"
+                    || kind == "tool_call"
+                    || kind == "tool_call_update"
+                {
                     if let Some(text) = chunk_text(&update) {
                         let _ = app.emit(
                             "acp-event",
@@ -586,7 +588,10 @@ async fn read_stdout(
             }
             continue;
         }
-        if let Some(id) = msg.get("id").and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|n| n as u64))) {
+        if let Some(id) = msg
+            .get("id")
+            .and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|n| n as u64)))
+        {
             if let Some(tx) = io.pending.lock().await.remove(&id) {
                 if let Some(error) = msg.get("error") {
                     let _ = tx.send(Err(error.to_string()));
@@ -728,6 +733,3 @@ mod tests {
         assert_eq!(chunk_text(&update).as_deref(), Some("译：腺苷三磷酸"));
     }
 }
-
-
-

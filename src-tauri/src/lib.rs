@@ -208,7 +208,11 @@ async fn acp_cancel(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn acp_prompt(app: AppHandle, state: State<'_, AppState>, text: String) -> Result<String, String> {
+async fn acp_prompt(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    text: String,
+) -> Result<String, String> {
     let answer = state.acp.prompt(&app, &text).await?;
     let _ = app
         .notification()

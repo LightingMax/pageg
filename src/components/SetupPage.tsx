@@ -205,7 +205,9 @@ export default function SetupPage({
         {report?.installCommand ? (
           <div className="setup-row">
             <h3>安装命令（可复制）</h3>
-            <p className="hint">一键安装会弹出 PowerShell。若被拦截，把这行贴进去自己跑。</p>
+            <p className="hint">
+              一键安装会打开 {report.terminalName}。若系统拦截，请复制这行命令后手动运行。
+            </p>
             <div className="setup-copy">
               <code>{report.installCommand}</code>
               <button className="tiny" onClick={() => void copy(report.installCommand, "已复制命令")}>
