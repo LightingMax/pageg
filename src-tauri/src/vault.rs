@@ -36,6 +36,26 @@ pub struct Rect {
 pub struct BookMeta {
     pub id: String,
     pub title: String,
+    #[serde(default)]
+    pub authors: Vec<String>,
+    #[serde(default)]
+    pub year: Option<String>,
+    #[serde(default)]
+    pub doi: Option<String>,
+    #[serde(default)]
+    pub subject: Option<String>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    #[serde(rename = "pageCount", default)]
+    pub page_count: Option<u32>,
+    #[serde(rename = "originalFilename", default)]
+    pub original_filename: String,
+    #[serde(rename = "metadataStatus", default)]
+    pub metadata_status: String,
+    #[serde(rename = "onDesk", default = "default_true")]
+    pub on_desk: bool,
+    #[serde(rename = "lastOpenedAt", default)]
+    pub last_opened_at: Option<String>,
     #[serde(rename = "sourcePath")]
     pub source_path: String,
     #[serde(rename = "createdAt")]
@@ -44,6 +64,24 @@ pub struct BookMeta {
     pub updated_at: String,
     #[serde(rename = "lastPage")]
     pub last_page: u32,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct BookMetadataPatch {
+    pub title: Option<String>,
+    pub authors: Option<Vec<String>>,
+    pub year: Option<String>,
+    pub doi: Option<String>,
+    pub subject: Option<String>,
+    pub keywords: Option<Vec<String>>,
+    #[serde(rename = "pageCount")]
+    pub page_count: Option<u32>,
+    #[serde(rename = "metadataStatus")]
+    pub metadata_status: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -209,6 +247,16 @@ pub fn ingest_pdf(app: &AppHandle, bytes: &[u8], filename: &str) -> Result<BookR
         BookMeta {
             id: id.clone(),
             title,
+            authors: Vec::new(),
+            year: None,
+            doi: None,
+            subject: None,
+            keywords: Vec::new(),
+            page_count: None,
+            original_filename: filename.to_string(),
+            metadata_status: "pending".into(),
+            on_desk: true,
+            last_opened_at: Some(stamp.clone()),
             source_path: source_str,
             created_at: stamp.clone(),
             updated_at: stamp,
@@ -253,6 +301,54 @@ pub fn load_book(app: &AppHandle, id: &str) -> Result<BookRecord, String> {
         highlights,
         vault_path: dir.to_string_lossy().to_string(),
     })
+}
+
+pub fn update_book_metadata(
+    app: &AppHandle,
+    id: &str,
+    patch: BookMetadataPatch,
+) -> Result<BookRecord, String> {
+    let dir = book_dir(app, id)?;
+    let meta_path = dir.join("meta.json");
+    let mut meta: BookMeta =
+        serde_json::from_str(&read_to_string_lossy(&meta_path)).map_err(|e| e.to_string())?;
+    if let Some(title) = patch.title.map(|value| value.trim().to_string()) {
+        if !title.is_empty() {
+            meta.title = title;
+        }
+    }
+    if let Some(authors) = patch.authors {
+        meta.authors = authors
+            .into_iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect();
+    }
+    if patch.year.is_some() {
+        meta.year = patch.year.filter(|value| !value.trim().is_empty());
+    }
+    if patch.doi.is_some() {
+        meta.doi = patch.doi.filter(|value| !value.trim().is_empty());
+    }
+    if patch.subject.is_some() {
+        meta.subject = patch.subject.filter(|value| !value.trim().is_empty());
+    }
+    if let Some(keywords) = patch.keywords {
+        meta.keywords = keywords
+            .into_iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect();
+    }
+    if let Some(page_count) = patch.page_count {
+        meta.page_count = Some(page_count);
+    }
+    if let Some(status) = patch.metadata_status {
+        meta.metadata_status = status;
+    }
+    meta.updated_at = now_iso();
+    write_json(&meta_path, &meta)?;
+    load_book(app, id)
 }
 
 pub fn list_books(app: &AppHandle) -> Result<Vec<BookMeta>, String> {
@@ -409,6 +505,34 @@ pub fn assign_book(
     Ok(catalog)
 }
 
+pub fn move_book(app: &AppHandle, book_id: &str, shelf_id: &str) -> Result<Catalog, String> {
+    let mut catalog = read_catalog(app)?;
+    for shelf in &mut catalog.shelves {
+        shelf.book_ids.retain(|id| id != book_id);
+    }
+    if !shelf_id.is_empty() {
+        let shelf = catalog
+            .shelves
+            .iter_mut()
+            .find(|shelf| shelf.id == shelf_id)
+            .ok_or("找不到这个书架")?;
+        shelf.book_ids.push(book_id.to_string());
+    }
+    write_catalog(app, &catalog)?;
+
+    let dir = book_dir(app, book_id)?;
+    let meta_path = dir.join("meta.json");
+    let mut meta: BookMeta =
+        serde_json::from_str(&read_to_string_lossy(&meta_path)).map_err(|e| e.to_string())?;
+    meta.on_desk = shelf_id.is_empty();
+    if meta.on_desk {
+        meta.last_opened_at = Some(now_iso());
+    }
+    meta.updated_at = now_iso();
+    write_json(&meta_path, &meta)?;
+    Ok(catalog)
+}
+
 pub fn read_session(app: &AppHandle, id: &str) -> Result<String, String> {
     Ok(read_to_string_lossy(&book_dir(app, id)?.join("session.md")))
 }
@@ -434,4 +558,27 @@ pub fn append_session(app: &AppHandle, id: &str, block: &str) -> Result<String, 
     }
     fs::write(&path, &next).map_err(|e| e.to_string())?;
     Ok(next)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BookMeta;
+
+    #[test]
+    fn old_book_metadata_opens_on_the_desk_and_can_be_reindexed() {
+        let meta: BookMeta = serde_json::from_str(
+            r#"{
+                "id":"legacy",
+                "title":"paper-final",
+                "sourcePath":"/tmp/source.pdf",
+                "createdAt":"1",
+                "updatedAt":"2",
+                "lastPage":3
+            }"#,
+        )
+        .unwrap();
+        assert!(meta.on_desk);
+        assert!(meta.authors.is_empty());
+        assert!(meta.metadata_status.is_empty());
+    }
 }

@@ -76,6 +76,15 @@ fn library_load(app: AppHandle, id: String) -> Result<vault::BookRecord, String>
 }
 
 #[tauri::command]
+fn book_metadata_update(
+    app: AppHandle,
+    id: String,
+    patch: vault::BookMetadataPatch,
+) -> Result<vault::BookRecord, String> {
+    vault::update_book_metadata(&app, &id, patch)
+}
+
+#[tauri::command]
 fn notes_save(app: AppHandle, id: String, notes: String) -> Result<(), String> {
     vault::save_notes(&app, &id, &notes)
 }
@@ -148,6 +157,15 @@ fn shelf_assign(
     on: bool,
 ) -> Result<vault::Catalog, String> {
     vault::assign_book(&app, &shelf_id, &book_id, on)
+}
+
+#[tauri::command]
+fn shelf_move_book(
+    app: AppHandle,
+    book_id: String,
+    shelf_id: String,
+) -> Result<vault::Catalog, String> {
+    vault::move_book(&app, &book_id, &shelf_id)
 }
 
 #[tauri::command]
@@ -238,6 +256,7 @@ pub fn run() {
             read_pdf,
             library_list,
             library_load,
+            book_metadata_update,
             notes_save,
             notes_append,
             glossary_save,
@@ -252,6 +271,7 @@ pub fn run() {
             shelf_rename,
             shelf_delete,
             shelf_assign,
+            shelf_move_book,
             env_diagnose,
             env_warmup,
             env_install_cursor,

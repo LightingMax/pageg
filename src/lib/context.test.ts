@@ -5,6 +5,11 @@ import type { BookRecord } from "./types";
 const book: BookRecord = {
   id: "b1",
   title: "Plant Physiology",
+  authors: [],
+  keywords: [],
+  originalFilename: "plant.pdf",
+  metadataStatus: "ready",
+  onDesk: true,
   sourcePath: "C:/books/plant.pdf",
   createdAt: "2026-01-01",
   updatedAt: "2026-01-01",

@@ -11,6 +11,7 @@ export const pageg = {
   },
   listLibrary: () => invoke("library_list"),
   loadBook: (id: string) => invoke("library_load", { id }),
+  updateBookMetadata: (id: string, patch: unknown) => invoke("book_metadata_update", { id, patch }),
   saveNotes: (id: string, notes: string) => invoke("notes_save", { id, notes }),
   appendNote: (id: string, block: string) => invoke<string>("notes_append", { id, block }),
   saveGlossary: (id: string, glossary: string) => invoke("glossary_save", { id, glossary }),
@@ -26,6 +27,7 @@ export const pageg = {
   deleteShelf: (id: string) => invoke("shelf_delete", { id }),
   assignBook: (shelfId: string, bookId: string, on: boolean) =>
     invoke("shelf_assign", { shelfId, bookId, on }),
+  moveBook: (bookId: string, shelfId: string) => invoke("shelf_move_book", { bookId, shelfId }),
   diagnoseEnv: () => invoke("env_diagnose"),
   warmupAgent: (agentId: string) => invoke<string>("env_warmup", { agentId }),
   installCursorCli: () => invoke<string>("env_install_cursor"),

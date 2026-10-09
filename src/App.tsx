@@ -7,12 +7,14 @@ import SetupPage from "./components/SetupPage";
 import TabBar from "./components/TabBar";
 import { assemblePrompt, sessionBlock } from "./lib/context";
 import { readerAnswer, tidyQuote } from "./lib/answer";
+import { extractPdfMetadata } from "./lib/pdf-metadata";
 import type {
   AcpEvent,
   AcpStatus,
   AgentInfo,
   AppSettings,
   BookMeta,
+  BookMetadataPatch,
   BookRecord,
   Catalog,
   DiagnoseReport,
@@ -72,28 +74,63 @@ export default function App() {
   const [turn, setTurn] = useState<ReaderTurn | null>(null);
   const [aiTick, setAiTick] = useState(0);
   const autoTried = useRef(false);
+  const indexingIds = useRef(new Set<string>());
 
   const refreshLibrary = useCallback(async () => {
     setLibrary((await window.pageg.listLibrary()) as BookMeta[]);
     setCatalog((await window.pageg.readCatalog()) as Catalog);
   }, []);
 
+  const recognizeBook = useCallback(
+    async (candidate: BookMeta) => {
+      if (candidate.metadataStatus === "ready" || candidate.metadataStatus === "manual") return;
+      try {
+        const buffer = await window.pageg.readPdf(candidate.sourcePath);
+        const patch = await extractPdfMetadata(
+          buffer,
+          candidate.originalFilename || `${candidate.title}.pdf`,
+        );
+        const enriched = (await window.pageg.updateBookMetadata(candidate.id, patch)) as BookRecord;
+        setBook((current) => (current?.id === enriched.id ? enriched : current));
+        await refreshLibrary();
+      } catch (err) {
+        setError(`文献信息识别失败：${asError(err)}`);
+      }
+    },
+    [refreshLibrary],
+  );
+
+  useEffect(() => {
+    const pending = library.find(
+      (item) =>
+        item.metadataStatus !== "ready" &&
+        item.metadataStatus !== "manual" &&
+        !indexingIds.current.has(item.id),
+    );
+    if (!pending) return;
+    indexingIds.current.add(pending.id);
+    void recognizeBook(pending);
+  }, [library, recognizeBook]);
+
   const adoptBook = useCallback(
     async (next: BookRecord | null | undefined) => {
       if (!next) return;
+      await window.pageg.moveBook(next.id, "");
+      const adopted = { ...next, onDesk: true, lastOpenedAt: new Date().toISOString() };
       setError(null);
-      setBook(next);
-      setPage(next.lastPage || 1);
+      setBook(adopted);
+      setPage(adopted.lastPage || 1);
       setActiveId(null);
       setSettings((prev) => ({
         ...prev,
-        openTabs: prev.openTabs.includes(next.id) ? prev.openTabs : [...prev.openTabs, next.id],
+        openTabs: prev.openTabs.includes(adopted.id) ? prev.openTabs : [...prev.openTabs, adopted.id],
       }));
-      const log = await window.pageg.readSession(next.id).catch(() => "");
+      const log = await window.pageg.readSession(adopted.id).catch(() => "");
       setSessionLog(log);
       await refreshLibrary();
+      void recognizeBook(adopted);
     },
-    [refreshLibrary],
+    [recognizeBook, refreshLibrary],
   );
 
   const openFromPath = useCallback(
@@ -314,17 +351,27 @@ export default function App() {
 
   const moveBook = async (bookId: string, shelfId: string) => {
     try {
-      let next = catalog;
-      for (const shelf of catalog.shelves) {
-        if (shelf.bookIds.includes(bookId)) {
-          next = (await window.pageg.assignBook(shelf.id, bookId, false)) as Catalog;
-        }
-      }
-      if (shelfId) next = (await window.pageg.assignBook(shelfId, bookId, true)) as Catalog;
-      setCatalog(next);
+      setCatalog((await window.pageg.moveBook(bookId, shelfId)) as Catalog);
+      setBook((current) =>
+        current?.id === bookId ? { ...current, onDesk: !shelfId, lastOpenedAt: new Date().toISOString() } : current,
+      );
+      await refreshLibrary();
     } catch (err) {
       setError(asError(err));
       await refreshLibrary();
+    }
+  };
+
+  const updateBookMetadata = async (id: string, patch: BookMetadataPatch) => {
+    try {
+      const updated = (await window.pageg.updateBookMetadata(id, {
+        ...patch,
+        metadataStatus: "manual",
+      })) as BookRecord;
+      setBook((current) => (current?.id === id ? updated : current));
+      await refreshLibrary();
+    } catch (err) {
+      setError(asError(err));
     }
   };
 
@@ -560,7 +607,7 @@ export default function App() {
           onCreateShelf={(name) => void createShelf(name)}
           onAssignBook={(shelfId, on) => {
             if (!book) return;
-            void window.pageg.assignBook(shelfId, book.id, on).then((next) => setCatalog(next as Catalog));
+            if (on) void moveBook(book.id, shelfId);
           }}
           onMark={(sel, options) => addHighlight(sel, options)}
           onTranslate={(sel) => void runIntent("translate", undefined, sel)}
@@ -607,6 +654,7 @@ export default function App() {
           onRenameShelf={(id, name) => void renameShelf(id, name)}
           onDeleteShelf={(id) => void deleteShelf(id)}
           onMoveBook={(bookId, shelfId) => void moveBook(bookId, shelfId)}
+          onUpdateMetadata={(id, patch) => void updateBookMetadata(id, patch)}
         />
       )}
 

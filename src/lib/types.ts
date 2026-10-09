@@ -17,11 +17,25 @@ export type Highlight = {
 export type BookMeta = {
   id: string;
   title: string;
+  authors: string[];
+  year?: string;
+  doi?: string;
+  subject?: string;
+  keywords: string[];
+  pageCount?: number;
+  originalFilename: string;
+  metadataStatus: "pending" | "ready" | "manual" | "";
+  onDesk: boolean;
+  lastOpenedAt?: string;
   sourcePath: string;
   createdAt: string;
   updatedAt: string;
   lastPage: number;
 };
+
+export type BookMetadataPatch = Partial<
+  Pick<BookMeta, "title" | "authors" | "year" | "doi" | "subject" | "keywords" | "pageCount" | "metadataStatus">
+>;
 
 export type BookRecord = BookMeta & {
   notes: string;
