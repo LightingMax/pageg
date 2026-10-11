@@ -20,6 +20,7 @@ declare global {
       acpDisconnect: () => Promise<void>;
       acpCancel: () => Promise<void>;
       acpPrompt: (text: string) => Promise<string>;
+      acpPromptIsolated: (text: string) => Promise<string>;
       onAcpEvent: (handler: (payload: unknown) => void) => () => void;
     };
   }

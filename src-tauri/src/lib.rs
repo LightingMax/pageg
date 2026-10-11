@@ -130,6 +130,40 @@ fn session_append(app: AppHandle, id: String, block: String) -> Result<String, S
 }
 
 #[tauri::command]
+fn document_context_read(app: AppHandle, id: String) -> Result<Option<serde_json::Value>, String> {
+    vault::read_document_context(&app, &id)
+}
+
+#[tauri::command]
+fn document_context_save(
+    app: AppHandle,
+    id: String,
+    context: serde_json::Value,
+) -> Result<(), String> {
+    vault::save_document_context(&app, &id, &context)
+}
+
+#[tauri::command]
+fn book_digest_read(app: AppHandle, id: String) -> Result<Option<serde_json::Value>, String> {
+    vault::read_book_digest(&app, &id)
+}
+
+#[tauri::command]
+fn book_digest_save(app: AppHandle, id: String, digest: serde_json::Value) -> Result<(), String> {
+    vault::save_book_digest(&app, &id, &digest)
+}
+
+#[tauri::command]
+fn chat_history_read(app: AppHandle, id: String) -> Result<Option<serde_json::Value>, String> {
+    vault::read_chat_history(&app, &id)
+}
+
+#[tauri::command]
+fn chat_history_save(app: AppHandle, id: String, history: serde_json::Value) -> Result<(), String> {
+    vault::save_chat_history(&app, &id, &history)
+}
+
+#[tauri::command]
 fn catalog_read(app: AppHandle) -> Result<vault::Catalog, String> {
     vault::read_catalog(&app)
 }
@@ -241,6 +275,16 @@ async fn acp_prompt(
     Ok(answer)
 }
 
+#[tauri::command]
+async fn acp_prompt_isolated(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    text: String,
+) -> Result<String, String> {
+    state.acp.reset_context(&app).await?;
+    state.acp.prompt(&app, &text).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -266,6 +310,12 @@ pub fn run() {
             settings_write,
             session_read,
             session_append,
+            document_context_read,
+            document_context_save,
+            book_digest_read,
+            book_digest_save,
+            chat_history_read,
+            chat_history_save,
             catalog_read,
             shelf_create,
             shelf_rename,
@@ -281,7 +331,8 @@ pub fn run() {
             acp_connect,
             acp_disconnect,
             acp_cancel,
-            acp_prompt
+            acp_prompt,
+            acp_prompt_isolated
         ])
         .run(tauri::generate_context!())
         .expect("error while running Pageg");

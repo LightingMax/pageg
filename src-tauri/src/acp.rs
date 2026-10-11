@@ -49,7 +49,7 @@ pub struct AcpSession {
     session_id: String,
     agent_id: String,
     agent_name: String,
-    _cwd: PathBuf,
+    cwd: PathBuf,
     _vault_root: PathBuf,
 }
 
@@ -262,6 +262,47 @@ impl AcpHost {
         Ok(assembled)
     }
 
+    pub async fn reset_context(&self, app: &AppHandle) -> Result<(), String> {
+        let (io, cwd) = {
+            let guard = self.session.lock().await;
+            let session = guard.as_ref().ok_or("ACP session is not ready")?;
+            (session.io.clone(), session.cwd.clone())
+        };
+        let created = io
+            .request(
+                "session/new",
+                json!({
+                    "cwd": cwd.to_string_lossy(),
+                    "mcpServers": []
+                }),
+            )
+            .await?;
+        let session_id = created
+            .get("sessionId")
+            .and_then(|value| value.as_str())
+            .ok_or("session/new did not return sessionId")?
+            .to_string();
+        prefer_ask_mode(&io, &session_id, &created).await;
+        {
+            let mut guard = self.session.lock().await;
+            let session = guard.as_mut().ok_or("ACP session is not ready")?;
+            session.session_id = session_id.clone();
+        }
+        let current = self.status().await;
+        self.set_status(
+            app,
+            AcpStatus {
+                state: "ready".into(),
+                agent_id: current.agent_id,
+                agent_name: current.agent_name,
+                session_id: Some(session_id),
+                message: Some("已建立独立阅读上下文".into()),
+            },
+        )
+        .await;
+        Ok(())
+    }
+
     pub async fn cancel(&self) -> Result<(), String> {
         let guard = self.session.lock().await;
         let session = guard.as_ref().ok_or("ACP session is not ready")?;
@@ -395,7 +436,7 @@ async fn handshake(
         session_id,
         agent_id: agent.id,
         agent_name: agent.name,
-        _cwd: cwd,
+        cwd,
         _vault_root: vault_root,
     })
 }

@@ -70,6 +70,52 @@ export type ReaderTurn = {
   ok: boolean;
 };
 
+export type AskScope = "selection" | "page" | "book";
+
+export type PdfPageText = {
+  page: number;
+  text: string;
+};
+
+export type DocumentContext = {
+  version: number;
+  pageCount: number;
+  extractedAt: string;
+  pages: PdfPageText[];
+};
+
+export type BookDigest = {
+  version: number;
+  pageCount: number;
+  createdAt: string;
+  summary: string;
+  chunkSummaries: Array<{ startPage: number; endPage: number; text: string }>;
+};
+
+export type ChatTurn = {
+  id: string;
+  intent: ReaderTurn["intent"];
+  scope?: AskScope;
+  page: number;
+  question: string;
+  answer: string;
+  createdAt: string;
+};
+
+export type ChatSession = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  turns: ChatTurn[];
+};
+
+export type ChatHistory = {
+  version: number;
+  activeSessionId: string;
+  sessions: ChatSession[];
+};
+
 export type AcpStatus = {
   state: "disconnected" | "connecting" | "ready" | "prompting" | "error";
   agentId?: string;

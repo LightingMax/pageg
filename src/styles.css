@@ -542,6 +542,83 @@ button:disabled { opacity: 0.45; cursor: default; }
   border-radius: 10px;
   padding: 10px 12px;
 }
+.scope-picker {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--paper-deep);
+}
+.scope-picker button {
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 5px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.scope-picker button.active {
+  background: #fffaf2;
+  box-shadow: 0 2px 8px rgba(48, 32, 18, 0.1);
+  color: var(--oxblood);
+  font-weight: 650;
+}
+.chat-session-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+.chat-session-bar label { min-width: 0; display: grid; gap: 4px; }
+.chat-session-bar label > span {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+}
+.chat-session-bar select { width: 100%; min-width: 0; }
+.chat-thread {
+  display: grid;
+  gap: 12px;
+  max-height: 42vh;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: #fffaf2;
+}
+.chat-thread.bad { box-shadow: inset 3px 0 0 var(--oxblood); }
+.chat-turn { display: grid; gap: 7px; }
+.chat-question {
+  justify-self: end;
+  width: min(88%, 290px);
+  padding: 9px 11px;
+  border-radius: 13px 13px 3px 13px;
+  background: var(--paper-deep);
+}
+.chat-question button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--oxblood);
+  font-size: 10px;
+  font-weight: 700;
+}
+.chat-question p { margin: 4px 0 0; font-size: 13px; line-height: 1.45; }
+.chat-answer {
+  justify-self: start;
+  width: min(94%, 310px);
+  padding: 10px 12px;
+  border-radius: 3px 13px 13px 13px;
+  background: white;
+  box-shadow: 0 3px 12px rgba(48, 32, 18, 0.08);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.chat-turn.pending .chat-answer { color: var(--ink-soft); }
+.chat-empty { margin: 18px 8px; color: var(--ink-soft); font-size: 12px; line-height: 1.55; }
 
 .hint {
   color: var(--ink-soft);

@@ -8,16 +8,31 @@ import TabBar from "./components/TabBar";
 import { assemblePrompt, sessionBlock } from "./lib/context";
 import { readerAnswer, tidyQuote } from "./lib/answer";
 import { extractPdfMetadata } from "./lib/pdf-metadata";
+import { extractDocumentContext, validDocumentContext } from "./lib/pdf-context";
+import { buildBookDigest, relevantPages, validBookDigest } from "./lib/book-context";
+import {
+  appendChatTurn,
+  conversationMemory,
+  createChatSession,
+  emptyChatHistory,
+  historyFromLegacySession,
+  normalizeChatHistory,
+  selectChatSession,
+} from "./lib/chat-history";
 import type {
   AcpEvent,
   AcpStatus,
   AgentInfo,
   AppSettings,
+  AskScope,
+  BookDigest,
   BookMeta,
   BookMetadataPatch,
   BookRecord,
   Catalog,
+  ChatHistory,
   DiagnoseReport,
+  DocumentContext,
   Highlight,
   MarkOptions,
   ReaderTurn,
@@ -70,11 +85,15 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
-  const [sessionLog, setSessionLog] = useState("");
+  const [chatHistory, setChatHistory] = useState<ChatHistory>(() => emptyChatHistory());
   const [turn, setTurn] = useState<ReaderTurn | null>(null);
   const [aiTick, setAiTick] = useState(0);
+  const [readerSelection, setReaderSelection] = useState<SelectionPayload | null>(null);
   const autoTried = useRef(false);
   const indexingIds = useRef(new Set<string>());
+  const contextRequests = useRef(new Map<string, Promise<DocumentContext>>());
+  const currentBookId = useRef<string | null>(null);
+  const requestBookId = useRef<string | null>(null);
 
   const refreshLibrary = useCallback(async () => {
     setLibrary((await window.pageg.listLibrary()) as BookMeta[]);
@@ -115,18 +134,34 @@ export default function App() {
   const adoptBook = useCallback(
     async (next: BookRecord | null | undefined) => {
       if (!next) return;
+      currentBookId.current = next.id;
+      requestBookId.current = null;
+      setStream("");
+      setLogs("");
+      setTurn(null);
+      setChatHistory(emptyChatHistory());
       await window.pageg.moveBook(next.id, "");
       const adopted = { ...next, onDesk: true, lastOpenedAt: new Date().toISOString() };
       setError(null);
       setBook(adopted);
       setPage(adopted.lastPage || 1);
       setActiveId(null);
+      setReaderSelection(null);
       setSettings((prev) => ({
         ...prev,
         openTabs: prev.openTabs.includes(adopted.id) ? prev.openTabs : [...prev.openTabs, adopted.id],
       }));
-      const log = await window.pageg.readSession(adopted.id).catch(() => "");
-      setSessionLog(log);
+      const [log, storedHistory] = await Promise.all([
+        window.pageg.readSession(adopted.id).catch(() => ""),
+        window.pageg.readChatHistory(adopted.id).catch(() => null),
+      ]);
+      if (currentBookId.current === adopted.id) {
+        const loadedHistory = storedHistory ? normalizeChatHistory(storedHistory) : historyFromLegacySession(log);
+        setChatHistory(loadedHistory);
+        if (!storedHistory && loadedHistory.sessions.some((session) => session.turns.length > 0)) {
+          void window.pageg.saveChatHistory(adopted.id, loadedHistory);
+        }
+      }
       await refreshLibrary();
       void recognizeBook(adopted);
     },
@@ -182,8 +217,9 @@ export default function App() {
       const event = payload as AcpEvent;
       if (event.kind === "status" && event.status) setStatus(event.status);
       if (event.kind === "log" && event.text) setLogs((prev) => prev + event.text);
-      if (event.kind === "session_update" && event.text) setStream((prev) => prev + event.text);
-      if (event.kind === "stop") setStream((prev) => prev || event.text || prev);
+      const belongsToOpenBook = requestBookId.current === currentBookId.current;
+      if (event.kind === "session_update" && event.text && belongsToOpenBook) setStream((prev) => prev + event.text);
+      if (event.kind === "stop" && belongsToOpenBook) setStream((prev) => prev || event.text || prev);
     });
     return stop;
   }, [refreshLibrary]);
@@ -305,6 +341,12 @@ export default function App() {
 
   const openFromLibrary = async (id: string) => {
     try {
+      currentBookId.current = id;
+      requestBookId.current = null;
+      setTurn(null);
+      setStream("");
+      setLogs("");
+      setChatHistory(emptyChatHistory());
       await adoptBook((await window.pageg.loadBook(id)) as BookRecord);
     } catch (err) {
       setError(asError(err));
@@ -316,7 +358,11 @@ export default function App() {
     setSettings((prev) => ({ ...prev, openTabs: remaining }));
     if (book?.id !== id) return;
     if (remaining.length === 0) {
+      currentBookId.current = null;
+      requestBookId.current = null;
       setBook(null);
+      setTurn(null);
+      setStream("");
       return;
     }
     await openFromLibrary(remaining[remaining.length - 1]);
@@ -418,50 +464,134 @@ export default function App() {
     intent: "translate" | "explain" | "ask",
     extra?: string,
     sel?: SelectionPayload | null,
+    scope: AskScope = "page",
   ) => {
     if (!book) return;
+    const requestBook = book;
+    const requestHistory = chatHistory;
+    requestBookId.current = requestBook.id;
+    const updateTurn = (next: ReaderTurn | null) => {
+      if (currentBookId.current === requestBook.id) setTurn(next);
+    };
     if (status.state !== "ready" && status.state !== "prompting") {
       setError("还没连上智能体。点右上角状态钮，连上后再翻译。");
       setSetupOpen(true);
       return;
     }
-    const selected = tidyQuote(sel?.text ?? "");
-    const prompt = assemblePrompt({
-      intent,
-      book,
-      page: sel?.page ?? page,
-      selected,
-      context: tidyQuote(sel?.context ?? ""),
-      extra,
-      sessionLog,
-    });
-
     setStream("");
     setAiTick((n) => n + 1);
-    setTurn({
+    const activeSelection = sel ?? (intent === "ask" && scope === "selection" ? readerSelection : null);
+    const selected = tidyQuote(activeSelection?.text ?? "");
+    const targetPage = activeSelection?.page ?? page;
+    updateTurn({
       intent,
       quote: selected || extra || "",
       answer: intent === "translate" ? "正在翻译…" : intent === "explain" ? "正在解释…" : "正在回答…",
       ok: true,
     });
     try {
-      const raw = await window.pageg.acpPrompt(prompt);
+      let sourceText = "";
+      let bookDigest = "";
+      let relevantText = "";
+      if (intent === "ask") {
+        if (scope === "selection") {
+          if (!activeSelection?.text.trim()) throw new Error("请先在 PDF 中选中一段文字，再使用“选区”提问。 ");
+          sourceText = activeSelection.context || activeSelection.text;
+        } else {
+          let pending = contextRequests.current.get(book.id);
+          if (!pending) {
+            pending = (async () => {
+              const cached = await window.pageg.readDocumentContext(book.id);
+              if (validDocumentContext(cached, book.pageCount)) return cached;
+              updateTurn({ intent: "ask", quote: extra || "", answer: "正在提取 PDF 正文…", ok: true });
+              const buffer = await window.pageg.readPdf(book.sourcePath);
+              const context = await extractDocumentContext(buffer, (done, total) => {
+                updateTurn({
+                  intent: "ask",
+                  quote: extra || "",
+                  answer: `正在提取 PDF 正文 ${done}/${total} 页…`,
+                  ok: true,
+                });
+              });
+              await window.pageg.saveDocumentContext(book.id, context);
+              return context;
+            })();
+            contextRequests.current.set(book.id, pending);
+          }
+          const documentContext = await pending.catch((err) => {
+            contextRequests.current.delete(book.id);
+            throw err;
+          });
+          if (scope === "page") {
+            sourceText = documentContext.pages.find((item) => item.page === page)?.text ?? "";
+            if (!sourceText) throw new Error(`第 ${page} 页没有提取到可读文字，可能是扫描版 PDF。`);
+          } else {
+            const cachedDigest = await window.pageg.readBookDigest(book.id);
+            let digest: BookDigest;
+            if (validBookDigest(cachedDigest, documentContext)) {
+              digest = cachedDigest;
+              updateTurn({ intent: "ask", quote: extra || "", answer: "已载入全书压缩上下文，正在回答…", ok: true });
+            } else {
+              digest = await buildBookDigest(
+                book,
+                documentContext,
+                (text) => window.pageg.acpPromptIsolated(text),
+                (_done, _total, label) =>
+                  updateTurn({ intent: "ask", quote: extra || "", answer: `${label}…`, ok: true }),
+              );
+              await window.pageg.saveBookDigest(book.id, digest);
+            }
+            bookDigest = digest.summary;
+            relevantText = relevantPages(documentContext.pages, extra ?? "");
+          }
+        }
+      }
+
+      const prompt = assemblePrompt({
+        intent,
+        book,
+        page: targetPage,
+        selected,
+        context: tidyQuote(activeSelection?.context ?? ""),
+        extra,
+        sessionLog: conversationMemory(requestHistory),
+        scope,
+        sourceText,
+        bookDigest,
+        relevantText,
+      });
+      if (intent === "ask") {
+        updateTurn({ intent, quote: selected || extra || "", answer: "正文已就绪，正在回答…", ok: true });
+      }
+      const raw =
+        intent === "ask" ? await window.pageg.acpPromptIsolated(prompt) : await window.pageg.acpPrompt(prompt);
       const result = readerAnswer(raw, intent);
-      setStream(result.text);
-      setTurn({ intent, quote: selected || extra || "", answer: result.text, ok: result.ok });
+      if (currentBookId.current === requestBook.id) setStream(result.text);
+      updateTurn({ intent, quote: selected || extra || "", answer: result.text, ok: result.ok });
       if (!result.ok) {
         setError(result.text);
         return;
       }
-      const log = await window.pageg.appendSession(
+      await window.pageg.appendSession(
         book.id,
-        sessionBlock(intent, sel?.page ?? page, selected || extra || "", result.text),
+        sessionBlock(intent, targetPage, selected || extra || "", result.text),
       );
-      setSessionLog(log);
-      if (intent !== "ask" && selected && sel) {
-        const nextNotes = await window.pageg.appendNote(book.id, noteBlock(sel.page, selected, result.text));
+      const nextHistory = appendChatTurn(requestHistory, {
+        intent,
+        scope: intent === "ask" ? scope : undefined,
+        page: targetPage,
+        question: selected || extra || (intent === "translate" ? "翻译选区" : "解释选区"),
+        answer: result.text,
+      });
+      await window.pageg.saveChatHistory(requestBook.id, nextHistory);
+      if (currentBookId.current === requestBook.id) {
+        setChatHistory(nextHistory);
+        setTurn(null);
+      }
+      if (intent !== "ask" && selected && activeSelection) {
+        const nextNotes = await window.pageg.appendNote(book.id, noteBlock(activeSelection.page, selected, result.text));
         setBook((prev) =>
-          prev
+          prev?.id === requestBook.id
             ? {
                 ...prev,
                 notes: nextNotes,
@@ -469,11 +599,11 @@ export default function App() {
                   ...prev.highlights,
                   {
                     id: crypto.randomUUID(),
-                    page: sel.page,
+                    page: activeSelection.page,
                     text: selected,
                     color: intent === "translate" ? "#7eb6d9" : "#8fbf6a",
                     note: result.text,
-                    rects: sel.rects,
+                    rects: activeSelection.rects,
                     createdAt: new Date().toISOString(),
                     kind: intent === "translate" ? "translate" : "explain",
                     style: "highlight",
@@ -485,12 +615,27 @@ export default function App() {
       }
     } catch (err) {
       const message = asError(err);
-      setTurn({ intent, quote: selected || extra || "", answer: message, ok: false });
-      setStatus({
-        state: "error",
-        message,
-      });
+      updateTurn({ intent, quote: selected || extra || "", answer: message, ok: false });
+      if (currentBookId.current === requestBook.id) setError(message);
     }
+  };
+
+  const startChatSession = () => {
+    if (!book) return;
+    const next = createChatSession(chatHistory);
+    setChatHistory(next);
+    setTurn(null);
+    setStream("");
+    void window.pageg.saveChatHistory(book.id, next);
+  };
+
+  const openChatSession = (id: string) => {
+    if (!book) return;
+    const next = selectChatSession(chatHistory, id);
+    setChatHistory(next);
+    setTurn(null);
+    setStream("");
+    void window.pageg.saveChatHistory(book.id, next);
   };
 
   const connect = async (agentId = settings.agentId) => {
@@ -540,7 +685,18 @@ export default function App() {
         </button>
       )}
       <header className="topbar">
-        <button className="brand" type="button" onClick={() => setBook(null)} title="回到我的书桌">
+        <button
+          className="brand"
+          type="button"
+          onClick={() => {
+            currentBookId.current = null;
+            requestBookId.current = null;
+            setBook(null);
+            setTurn(null);
+            setStream("");
+          }}
+          title="回到我的书桌"
+        >
           <b>PAGEG</b>
           <span>本地阅读 · 按需智能</span>
         </button>
@@ -616,6 +772,7 @@ export default function App() {
           onUpdate={updateHighlight}
           onDelete={deleteHighlight}
           onSelect={setActiveId}
+          onTextSelection={setReaderSelection}
           />
 
           <SidePanel
@@ -627,13 +784,18 @@ export default function App() {
           logs={logs}
           activeId={activeId}
           turn={turn}
+          chatHistory={chatHistory}
           aiTick={aiTick}
           onNotes={(notes) => setBook((prev) => (prev ? { ...prev, notes } : prev))}
           onGlossary={(glossary) => setBook((prev) => (prev ? { ...prev, glossary } : prev))}
           onSettings={setSettings}
           onConnect={() => void connect()}
           onDisconnect={() => void window.pageg.acpDisconnect()}
-          onAsk={(q) => void runIntent("ask", q)}
+          onAsk={({ question, scope }) => void runIntent("ask", question, null, scope)}
+          onNewSession={startChatSession}
+          onSelectSession={openChatSession}
+          onJumpPage={setPage}
+          hasSelection={Boolean(readerSelection?.text)}
           onCancel={() => void window.pageg.acpCancel()}
           onJump={(mark) => {
             setPage(mark.page);

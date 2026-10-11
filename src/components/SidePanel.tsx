@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { AcpStatus, AgentInfo, AppSettings, BookRecord, Highlight, ReaderTurn } from "../lib/types";
+import { activeChatSession } from "../lib/chat-history";
+import type { AcpStatus, AgentInfo, AppSettings, AskScope, BookRecord, ChatHistory, Highlight, ReaderTurn } from "../lib/types";
 
 type Tab = "marks" | "tags" | "notes" | "ai" | "glossary";
 
@@ -16,7 +17,12 @@ type Props = {
   onSettings: (value: AppSettings) => void;
   onConnect: () => void;
   onDisconnect: () => void;
-  onAsk: (question: string) => void;
+  onAsk: (request: { question: string; scope: AskScope }) => void;
+  hasSelection: boolean;
+  chatHistory: ChatHistory;
+  onNewSession: () => void;
+  onSelectSession: (id: string) => void;
+  onJumpPage: (page: number) => void;
   onCancel: () => void;
   onJump: (mark: Highlight) => void;
   onDeleteMark: (id: string) => void;
@@ -51,14 +57,21 @@ export default function SidePanel({
   onDeleteMark,
   turn,
   aiTick,
+  hasSelection,
+  chatHistory,
+  onNewSession,
+  onSelectSession,
+  onJumpPage,
 }: Props) {
   const [tab, setTab] = useState<Tab>("marks");
   const [question, setQuestion] = useState("");
+  const [askScope, setAskScope] = useState<AskScope>("page");
   const sorted = [...(book?.highlights ?? [])].sort(
     (a, b) => a.page - b.page || a.createdAt.localeCompare(b.createdAt),
   );
   const marks = sorted.filter((mark) => mark.kind !== "tag");
   const tags = sorted.filter((mark) => mark.kind === "tag");
+  const activeSession = activeChatSession(chatHistory);
 
   useEffect(() => {
     if (aiTick > 0) setTab("ai");
@@ -163,7 +176,7 @@ export default function SidePanel({
       {tab === "ai" && (
         <>
           <p className="hint">
-            划词后点翻译 / 解释。Pageg 会复用你本机 Cursor 或 Codex 的登录，但只把选中句子交给它，并丢掉思考和工具调用。
+            Pageg 会直接提取 PDF 正文。当前页可立即提问；整本书会在首次使用时分段压缩并保存，后续提问直接复用。
           </p>
           <div className="ask">
             <select
@@ -201,33 +214,80 @@ export default function SidePanel({
               )}
             </div>
             <p className="hint">{status.message ?? "尚未连接"}</p>
+            <div className="chat-session-bar">
+              <label>
+                <span>会话历史</span>
+                <select value={chatHistory.activeSessionId} onChange={(e) => onSelectSession(e.target.value)}>
+                  {chatHistory.sessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {session.title} · {session.turns.length} 轮
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="tiny" onClick={onNewSession}>
+                ＋ 新会话
+              </button>
+            </div>
             <form
               className="ask"
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!question.trim()) return;
-                onAsk(question.trim());
+                const inferred = /整本|全书|全文|整篇|whole\s+book/i.test(question) ? "book" : askScope;
+                onAsk({ question: question.trim(), scope: inferred });
+                if (inferred !== askScope) setAskScope(inferred);
                 setQuestion("");
               }}
             >
+              <div className="scope-picker" aria-label="AI 阅读范围">
+                <button
+                  type="button"
+                  className={askScope === "selection" ? "active" : ""}
+                  disabled={!hasSelection}
+                  onClick={() => setAskScope("selection")}
+                >
+                  选区
+                </button>
+                <button type="button" className={askScope === "page" ? "active" : ""} onClick={() => setAskScope("page")}>
+                  当前页
+                </button>
+                <button type="button" className={askScope === "book" ? "active" : ""} onClick={() => setAskScope("book")}>
+                  整本书
+                </button>
+              </div>
               <input
                 value={question}
-                placeholder="问这一页，而不是问整本书"
+                placeholder={askScope === "book" ? "总结全书，或基于整本书提问" : askScope === "selection" ? "询问刚才选中的文字" : "询问当前页内容"}
                 onChange={(e) => setQuestion(e.target.value)}
               />
               <button className="solid" type="submit" disabled={status.state !== "ready"}>
                 提问
               </button>
             </form>
-            <div className={`stream ${turn && !turn.ok ? "bad" : ""}`}>
-              {turn ? (
-                <>
-                  {turn.quote ? <p className="quote">{turn.quote}</p> : null}
-                  <p className="answer">{turn.answer}</p>
-                </>
-              ) : (
-                stream || "划词后点翻译或解释。回答只出现在这里，不会改 PDF。"
+            <div className={`chat-thread ${turn && !turn.ok ? "bad" : ""}`}>
+              {activeSession?.turns.length ? (
+                activeSession.turns.map((item) => (
+                  <article className="chat-turn" key={item.id}>
+                    <div className="chat-question">
+                      <button type="button" onClick={() => onJumpPage(item.page)}>
+                        第 {item.page} 页 · {item.scope === "book" ? "整本书" : item.scope === "selection" ? "选区" : item.intent === "translate" ? "翻译" : item.intent === "explain" ? "解释" : "当前页"}
+                      </button>
+                      <p>{item.question}</p>
+                    </div>
+                    <div className="chat-answer">{item.answer}</div>
+                  </article>
+                ))
+              ) : !turn ? (
+                <p className="chat-empty">这个会话还没有内容。提问、翻译或解释都会保存在这里。</p>
+              ) : null}
+              {turn && (
+                <article className="chat-turn pending">
+                  {turn.quote ? <div className="chat-question"><p>{turn.quote}</p></div> : null}
+                  <div className="chat-answer">{turn.answer}</div>
+                </article>
               )}
+              {!turn && !activeSession?.turns.length && stream ? <div className="chat-answer">{stream}</div> : null}
             </div>
             {logs && <pre className="hint">{logs.slice(-1200)}</pre>}
           </div>

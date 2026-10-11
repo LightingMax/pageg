@@ -38,6 +38,7 @@ type Props = {
   onUpdate: (id: string, patch: Partial<Highlight>) => void;
   onDelete: (id: string) => void;
   onSelect: (id: string | null) => void;
+  onTextSelection: (selection: SelectionPayload) => void;
 };
 
 function hitTest(highlights: Highlight[], x: number, y: number) {
@@ -274,6 +275,7 @@ export default function PdfPane({
   onUpdate,
   onDelete,
   onSelect,
+  onTextSelection,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
@@ -435,14 +437,16 @@ export default function PdfPane({
       setNoteOpen(false);
       setTagOpen(false);
       onSelect(null);
-      setSelection({
+      const nextSelection = {
         page: pageNumber,
         text,
         context,
         rects,
         x: last ? (last.x + last.w) * pageBox.width : 24,
         y: last ? last.y * pageBox.height : 24,
-      });
+      };
+      setSelection(nextSelection);
+      onTextSelection(nextSelection);
       return true;
     };
 
@@ -547,7 +551,7 @@ export default function PdfPane({
       document.removeEventListener("mouseup", onUp);
       document.removeEventListener("selectionchange", onSelectionChange);
     };
-  }, [highlights, onSelect]);
+  }, [highlights, onSelect, onTextSelection]);
 
   const mark = (style: MarkStyle, color = COLORS[0]) => {
     if (!selection) return;

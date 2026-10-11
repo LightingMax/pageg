@@ -283,6 +283,7 @@ pub fn open_book(app: &AppHandle, source_path: &str) -> Result<BookRecord, Strin
 
 pub fn load_book(app: &AppHandle, id: &str) -> Result<BookRecord, String> {
     let dir = book_dir(app, id)?;
+    write_skill(&dir)?;
     let mut meta: BookMeta = serde_json::from_str(&read_to_string_lossy(&dir.join("meta.json")))
         .map_err(|e| e.to_string())?;
     let copied = dir.join("source.pdf");
@@ -560,6 +561,76 @@ pub fn append_session(app: &AppHandle, id: &str, block: &str) -> Result<String, 
     Ok(next)
 }
 
+fn read_cached_json(
+    app: &AppHandle,
+    id: &str,
+    filename: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    let path = book_dir(app, id)?.join(filename);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let value = serde_json::from_str(&read_to_string_lossy(&path)).map_err(|e| e.to_string())?;
+    Ok(Some(value))
+}
+
+fn save_cached_json(
+    app: &AppHandle,
+    id: &str,
+    filename: &str,
+    value: &serde_json::Value,
+) -> Result<(), String> {
+    let dir = book_dir(app, id)?;
+    if !dir.join("meta.json").exists() {
+        return Err("找不到这本书".into());
+    }
+    write_json(&dir.join(filename), value)
+}
+
+pub fn read_document_context(
+    app: &AppHandle,
+    id: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    read_cached_json(app, id, "document-context.json")
+}
+
+pub fn save_document_context(
+    app: &AppHandle,
+    id: &str,
+    context: &serde_json::Value,
+) -> Result<(), String> {
+    save_cached_json(app, id, "document-context.json", context)
+}
+
+pub fn read_book_digest(app: &AppHandle, id: &str) -> Result<Option<serde_json::Value>, String> {
+    read_cached_json(app, id, "book-summary.json")
+}
+
+pub fn save_book_digest(
+    app: &AppHandle,
+    id: &str,
+    digest: &serde_json::Value,
+) -> Result<(), String> {
+    save_cached_json(app, id, "book-summary.json", digest)?;
+    let summary = digest
+        .get("summary")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    fs::write(book_dir(app, id)?.join("book-summary.md"), summary).map_err(|e| e.to_string())
+}
+
+pub fn read_chat_history(app: &AppHandle, id: &str) -> Result<Option<serde_json::Value>, String> {
+    read_cached_json(app, id, "chat-history.json")
+}
+
+pub fn save_chat_history(
+    app: &AppHandle,
+    id: &str,
+    history: &serde_json::Value,
+) -> Result<(), String> {
+    save_cached_json(app, id, "chat-history.json", history)
+}
+
 #[cfg(test)]
 mod tests {
     use super::BookMeta;
@@ -580,5 +651,11 @@ mod tests {
         assert!(meta.on_desk);
         assert!(meta.authors.is_empty());
         assert!(meta.metadata_status.is_empty());
+    }
+
+    #[test]
+    fn embedded_reader_skill_accepts_pdf_context() {
+        assert!(super::SKILL.contains("PDF正文"));
+        assert!(!super::SKILL.contains("quote in the prompt is the whole context"));
     }
 }

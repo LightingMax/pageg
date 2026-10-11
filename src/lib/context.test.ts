@@ -63,6 +63,40 @@ describe("assemblePrompt", () => {
     expect(prompt).toContain("不要写代码");
     expect(prompt).not.toContain("vault");
   });
+
+  it("includes extracted current-page text and tells the reader it has the PDF body", () => {
+    const prompt = assemblePrompt({
+      intent: "ask",
+      book,
+      page: 3,
+      selected: "",
+      context: "",
+      extra: "这一页的结论是什么？",
+      scope: "page",
+      sourceText: "Photosynthesis converts light energy into chemical energy.",
+    });
+    expect(prompt).toContain("当前页正文（第 3 页）");
+    expect(prompt).toContain("Photosynthesis converts");
+    expect(prompt).toContain("已经从 PDF 中提取");
+    expect(prompt).toContain("不要声称无法读取正文");
+  });
+
+  it("includes the whole-book digest and relevant source pages", () => {
+    const prompt = assemblePrompt({
+      intent: "ask",
+      book,
+      page: 3,
+      selected: "",
+      context: "",
+      extra: "总结全书",
+      scope: "book",
+      bookDigest: "中心思想是长期记忆。",
+      relevantText: "【第 8 页】记忆需要选择性遗忘。",
+    });
+    expect(prompt).toContain("阅读范围：整本书");
+    expect(prompt).toContain("全书压缩上下文");
+    expect(prompt).toContain("与问题相关的原文页");
+  });
 });
 
 describe("sessionBlock", () => {

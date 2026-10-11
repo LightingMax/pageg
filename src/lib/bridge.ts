@@ -21,6 +21,12 @@ export const pageg = {
   writeSettings: (settings: unknown) => invoke("settings_write", { settings }),
   readSession: (id: string) => invoke<string>("session_read", { id }),
   appendSession: (id: string, block: string) => invoke<string>("session_append", { id, block }),
+  readDocumentContext: (id: string) => invoke("document_context_read", { id }),
+  saveDocumentContext: (id: string, context: unknown) => invoke("document_context_save", { id, context }),
+  readBookDigest: (id: string) => invoke("book_digest_read", { id }),
+  saveBookDigest: (id: string, digest: unknown) => invoke("book_digest_save", { id, digest }),
+  readChatHistory: (id: string) => invoke("chat_history_read", { id }),
+  saveChatHistory: (id: string, history: unknown) => invoke("chat_history_save", { id, history }),
   readCatalog: () => invoke("catalog_read"),
   createShelf: (name: string) => invoke("shelf_create", { name }),
   renameShelf: (id: string, name: string) => invoke("shelf_rename", { id, name }),
@@ -39,6 +45,7 @@ export const pageg = {
   acpDisconnect: () => invoke("acp_disconnect"),
   acpCancel: () => invoke("acp_cancel"),
   acpPrompt: (text: string) => invoke<string>("acp_prompt", { text }),
+  acpPromptIsolated: (text: string) => invoke<string>("acp_prompt_isolated", { text }),
   onAcpEvent: (handler: (payload: unknown) => void) => {
     const pending = listen("acp-event", (event) => handler(event.payload));
     return () => {
