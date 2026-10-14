@@ -293,11 +293,11 @@ button:disabled { opacity: 0.45; cursor: default; }
 .hl {
   position: absolute;
   pointer-events: none;
-  border-radius: 2px;
+  border-radius: 1px;
 }
 .hl.style-highlight {
-  background: color-mix(in srgb, var(--hl-color, var(--gold)) 55%, transparent);
-  mix-blend-mode: multiply;
+  /* Keep the PDF text crisp while still showing a soft marker stroke. */
+  background: color-mix(in srgb, var(--hl-color, var(--gold)) 28%, transparent);
 }
 .hl.style-underline {
   background: transparent;
