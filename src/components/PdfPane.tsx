@@ -9,6 +9,9 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const THUMB_WIDTH = 108;
+const ZOOM_MIN = 0.75;
+const ZOOM_MAX = 1.75;
+const ZOOM_STEP = 0.125;
 
 type PdfDoc = PDFDocumentProxy;
 type PageMetric = { w: number; h: number };
@@ -384,6 +387,23 @@ export default function PdfPane({
       if (frame) cancelAnimationFrame(frame);
     };
   }, [pdf, metrics.length, onPageChange]);
+
+  useEffect(() => {
+    const root = pagesRef.current;
+    if (!root || !pdf) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || (event.target as HTMLElement | null)?.closest(".reader-tools")) return;
+      event.preventDefault();
+      setZoom((value) =>
+        Math.max(
+          ZOOM_MIN,
+          Math.min(ZOOM_MAX, value + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)),
+        ),
+      );
+    };
+    root.addEventListener("wheel", onWheel, { passive: false });
+    return () => root.removeEventListener("wheel", onWheel);
+  }, [pdf]);
 
   useEffect(() => {
     document
@@ -777,16 +797,16 @@ export default function PdfPane({
       <div ref={pagesRef} className="reader">
         {pdf && (
           <div className="reader-tools" aria-label="PDF 阅读工具">
-            <button className="tiny" onClick={() => setZoom((value) => Math.max(0.75, value - 0.125))}>
+            <button className="tiny" onClick={() => setZoom((value) => Math.max(ZOOM_MIN, value - ZOOM_STEP))}>
               −
             </button>
             <button className="zoom-value" onClick={() => setZoom(1)} title="适合宽度">
               {Math.round(zoom * 100)}%
             </button>
-            <button className="tiny" onClick={() => setZoom((value) => Math.min(1.75, value + 0.125))}>
+            <button className="tiny" onClick={() => setZoom((value) => Math.min(ZOOM_MAX, value + ZOOM_STEP))}>
               +
             </button>
-            <span>拖选文字后可高亮、划线、备注或添加标签</span>
+            <span>拖选文字后可高亮、划线、备注或添加标签；按住 Ctrl/⌘ 滚轮可缩放</span>
           </div>
         )}
         {!sourcePath && (
