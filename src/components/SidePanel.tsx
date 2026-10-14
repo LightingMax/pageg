@@ -176,11 +176,11 @@ export default function SidePanel({
       )}
 
       {tab === "ai" && (
-        <>
-          <p className="hint">
-            直接提问即可。Pageg 会根据你的问题和已选文字，自动判断使用选区、当前页或整本书。
-          </p>
-          <div className="ask">
+        <div className="ai-panel">
+          <div className="ai-settings">
+            <p className="hint">
+              直接提问即可。Pageg 会根据你的问题和已选文字，自动判断使用选区、当前页或整本书。
+            </p>
             <select
               value={settings.agentId}
               onChange={(e) => onSettings({ ...settings, agentId: e.target.value })}
@@ -231,37 +231,9 @@ export default function SidePanel({
                 ＋ 新会话
               </button>
             </div>
-            <form
-              className="ask"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!question.trim()) return;
-                const inferred = inferAskScope(question, Boolean(selection?.text));
-                onAsk({ question: question.trim(), scope: inferred });
-                setQuestion("");
-              }}
-            >
-              {selection?.text && (
-                <div className="ask-context">
-                  <div className="ask-context-head">
-                    <span>已保留第 {selection.page} 页选中文字</span>
-                    <button type="button" onClick={onClearSelection}>清除</button>
-                  </div>
-                  <p>{selection.text}</p>
-                  <small>文字已自动复制，也可以在输入框右键粘贴</small>
-                </div>
-              )}
-              <textarea
-                rows={3}
-                value={question}
-                placeholder="直接提问，例如：这段是什么意思？它和全文的核心观点有什么关系？"
-                onChange={(e) => setQuestion(e.target.value)}
-              />
-              <button className="solid" type="submit" disabled={status.state !== "ready"}>
-                提问
-              </button>
-            </form>
-            <div className={`chat-thread ${turn && !turn.ok ? "bad" : ""}`}>
+            {logs && <pre className="hint ai-logs">{logs.slice(-1200)}</pre>}
+          </div>
+          <div className={`chat-thread ${turn && !turn.ok ? "bad" : ""}`}>
               {activeSession?.turns.length ? (
                 activeSession.turns.map((item) => (
                   <article className="chat-turn" key={item.id}>
@@ -284,10 +256,38 @@ export default function SidePanel({
                 </article>
               )}
               {!turn && !activeSession?.turns.length && stream ? <div className="chat-answer">{stream}</div> : null}
-            </div>
-            {logs && <pre className="hint">{logs.slice(-1200)}</pre>}
           </div>
-        </>
+          <form
+            className="ask ai-composer"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!question.trim()) return;
+              const inferred = inferAskScope(question, Boolean(selection?.text));
+              onAsk({ question: question.trim(), scope: inferred });
+              setQuestion("");
+            }}
+          >
+            {selection?.text && (
+              <div className="ask-context">
+                <div className="ask-context-head">
+                  <span>已保留第 {selection.page} 页选中文字</span>
+                  <button type="button" onClick={onClearSelection}>清除</button>
+                </div>
+                <p>{selection.text}</p>
+                <small>文字已自动复制，也可以在输入框右键粘贴</small>
+              </div>
+            )}
+            <textarea
+              rows={3}
+              value={question}
+              placeholder="直接提问，例如：这段是什么意思？它和全文的核心观点有什么关系？"
+              onChange={(e) => setQuestion(e.target.value)}
+            />
+            <button className="solid" type="submit" disabled={status.state !== "ready"}>
+              提问
+            </button>
+          </form>
+        </div>
       )}
     </aside>
   );
