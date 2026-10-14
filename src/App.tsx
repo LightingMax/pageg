@@ -480,9 +480,9 @@ export default function App() {
     }
     setStream("");
     setAiTick((n) => n + 1);
-    const activeSelection = sel ?? (intent === "ask" && scope === "selection" ? readerSelection : null);
+    const activeSelection = sel ?? (intent === "ask" ? readerSelection : null);
     const selected = tidyQuote(activeSelection?.text ?? "");
-    const targetPage = activeSelection?.page ?? page;
+    const targetPage = intent === "ask" && scope === "page" ? page : activeSelection?.page ?? page;
     updateTurn({
       intent,
       quote: selected || extra || "",
@@ -542,7 +542,7 @@ export default function App() {
               await window.pageg.saveBookDigest(book.id, digest);
             }
             bookDigest = digest.summary;
-            relevantText = relevantPages(documentContext.pages, extra ?? "");
+            relevantText = relevantPages(documentContext.pages, `${extra ?? ""}\n${selected}`);
           }
         }
       }
@@ -795,7 +795,8 @@ export default function App() {
           onNewSession={startChatSession}
           onSelectSession={openChatSession}
           onJumpPage={setPage}
-          hasSelection={Boolean(readerSelection?.text)}
+          selection={readerSelection}
+          onClearSelection={() => setReaderSelection(null)}
           onCancel={() => void window.pageg.acpCancel()}
           onJump={(mark) => {
             setPage(mark.page);

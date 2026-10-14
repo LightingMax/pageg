@@ -542,28 +542,52 @@ button:disabled { opacity: 0.45; cursor: default; }
   border-radius: 10px;
   padding: 10px 12px;
 }
-.scope-picker {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 3px;
-  padding: 3px;
-  border-radius: 11px;
-  background: var(--paper-deep);
+.ask textarea {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  border: 1px solid var(--rule);
+  background: #fffaf2;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.45;
 }
-.scope-picker button {
+.ask-context {
+  display: grid;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--oxblood) 22%, var(--rule));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--paper-deep) 58%, #fffaf2);
+}
+.ask-context-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--oxblood);
+  font-size: 11px;
+  font-weight: 700;
+}
+.ask-context-head button {
   border: 0;
-  border-radius: 8px;
-  padding: 7px 5px;
+  padding: 0;
   background: transparent;
   color: var(--ink-soft);
+  font-size: 11px;
+}
+.ask-context p {
+  max-height: 84px;
+  overflow: auto;
+  margin: 0;
+  color: var(--ink);
   font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
-.scope-picker button.active {
-  background: #fffaf2;
-  box-shadow: 0 2px 8px rgba(48, 32, 18, 0.1);
-  color: var(--oxblood);
-  font-weight: 650;
-}
+.ask-context small { color: var(--ink-soft); font-size: 10px; }
 .chat-session-bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

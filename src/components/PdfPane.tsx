@@ -480,6 +480,7 @@ export default function PdfPane({
       };
       setSelection(nextSelection);
       onTextSelection(nextSelection);
+      if (navigator.clipboard) void navigator.clipboard.writeText(text).catch(() => undefined);
       return true;
     };
 

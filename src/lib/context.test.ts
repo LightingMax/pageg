@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assemblePrompt, pickGlossary, sessionBlock } from "./context";
+import { assemblePrompt, inferAskScope, pickGlossary, sessionBlock } from "./context";
 import type { BookRecord } from "./types";
 
 const book: BookRecord = {
@@ -29,6 +29,19 @@ describe("pickGlossary", () => {
 
   it("returns empty when nothing matches", () => {
     expect(pickGlossary(book.glossary, "Hello")).toBe("");
+  });
+});
+
+describe("inferAskScope", () => {
+  it("uses the selection for focused questions", () => {
+    expect(inferAskScope("这段话是什么意思？", true)).toBe("selection");
+    expect(inferAskScope("这段和全文有什么关系？", true)).toBe("book");
+  });
+
+  it("recognizes page and whole-book wording without a picker", () => {
+    expect(inferAskScope("这一页的结论是什么？", false)).toBe("page");
+    expect(inferAskScope("总结这本书的整体思想", false)).toBe("book");
+    expect(inferAskScope("作者提出了什么方法？", false)).toBe("book");
   });
 });
 

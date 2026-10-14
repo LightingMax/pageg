@@ -1,6 +1,19 @@
 import type { AskScope, BookRecord } from "./types";
 import { tidyQuote } from "./answer";
 
+const BOOK_SCOPE_HINTS = /整本|全书|全文|整篇|这本书|这篇文章|这篇论文|本文的|文章整体|全文脉络|从头到尾|whole\s+book|entire\s+(book|paper|article)|this\s+(paper|article)|overall/i;
+const PAGE_SCOPE_HINTS = /当前页|本页|这一页|这页|该页|第\s*\d+\s*页|this\s+page|on\s+this\s+page/i;
+const BROAD_QUESTION_HINTS = /总结|概括|主要思想|核心观点|章节|论证|摘要|作者|贡献|研究问题|研究内容|方法|结论|主题|意义|局限|讲了什么|summary|summarize|main\s+idea|argument/i;
+
+/** Pick a reading range from the user's wording while preserving a live selection. */
+export function inferAskScope(question: string, hasSelection: boolean): AskScope {
+  const value = question.trim();
+  if (BOOK_SCOPE_HINTS.test(value)) return "book";
+  if (PAGE_SCOPE_HINTS.test(value)) return "page";
+  if (hasSelection) return "selection";
+  return BROAD_QUESTION_HINTS.test(value) ? "book" : "page";
+}
+
 export function pickGlossary(glossary: string, selected: string) {
   if (!glossary.trim() || !selected.trim()) return "";
   const hay = selected.toLowerCase();

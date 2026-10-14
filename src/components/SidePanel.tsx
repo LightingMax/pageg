@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { activeChatSession } from "../lib/chat-history";
-import type { AcpStatus, AgentInfo, AppSettings, AskScope, BookRecord, ChatHistory, Highlight, ReaderTurn } from "../lib/types";
+import { inferAskScope } from "../lib/context";
+import type { AcpStatus, AgentInfo, AppSettings, AskScope, BookRecord, ChatHistory, Highlight, ReaderTurn, SelectionPayload } from "../lib/types";
 
 type Tab = "marks" | "tags" | "notes" | "ai" | "glossary";
 
@@ -18,7 +19,8 @@ type Props = {
   onConnect: () => void;
   onDisconnect: () => void;
   onAsk: (request: { question: string; scope: AskScope }) => void;
-  hasSelection: boolean;
+  selection: SelectionPayload | null;
+  onClearSelection: () => void;
   chatHistory: ChatHistory;
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
@@ -57,7 +59,8 @@ export default function SidePanel({
   onDeleteMark,
   turn,
   aiTick,
-  hasSelection,
+  selection,
+  onClearSelection,
   chatHistory,
   onNewSession,
   onSelectSession,
@@ -65,7 +68,6 @@ export default function SidePanel({
 }: Props) {
   const [tab, setTab] = useState<Tab>("marks");
   const [question, setQuestion] = useState("");
-  const [askScope, setAskScope] = useState<AskScope>("page");
   const sorted = [...(book?.highlights ?? [])].sort(
     (a, b) => a.page - b.page || a.createdAt.localeCompare(b.createdAt),
   );
@@ -176,7 +178,7 @@ export default function SidePanel({
       {tab === "ai" && (
         <>
           <p className="hint">
-            Pageg 会直接提取 PDF 正文。当前页可立即提问；整本书会在首次使用时分段压缩并保存，后续提问直接复用。
+            直接提问即可。Pageg 会根据你的问题和已选文字，自动判断使用选区、当前页或整本书。
           </p>
           <div className="ask">
             <select
@@ -234,31 +236,25 @@ export default function SidePanel({
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!question.trim()) return;
-                const inferred = /整本|全书|全文|整篇|whole\s+book/i.test(question) ? "book" : askScope;
+                const inferred = inferAskScope(question, Boolean(selection?.text));
                 onAsk({ question: question.trim(), scope: inferred });
-                if (inferred !== askScope) setAskScope(inferred);
                 setQuestion("");
               }}
             >
-              <div className="scope-picker" aria-label="AI 阅读范围">
-                <button
-                  type="button"
-                  className={askScope === "selection" ? "active" : ""}
-                  disabled={!hasSelection}
-                  onClick={() => setAskScope("selection")}
-                >
-                  选区
-                </button>
-                <button type="button" className={askScope === "page" ? "active" : ""} onClick={() => setAskScope("page")}>
-                  当前页
-                </button>
-                <button type="button" className={askScope === "book" ? "active" : ""} onClick={() => setAskScope("book")}>
-                  整本书
-                </button>
-              </div>
-              <input
+              {selection?.text && (
+                <div className="ask-context">
+                  <div className="ask-context-head">
+                    <span>已保留第 {selection.page} 页选中文字</span>
+                    <button type="button" onClick={onClearSelection}>清除</button>
+                  </div>
+                  <p>{selection.text}</p>
+                  <small>文字已自动复制，也可以在输入框右键粘贴</small>
+                </div>
+              )}
+              <textarea
+                rows={3}
                 value={question}
-                placeholder={askScope === "book" ? "总结全书，或基于整本书提问" : askScope === "selection" ? "询问刚才选中的文字" : "询问当前页内容"}
+                placeholder="直接提问，例如：这段是什么意思？它和全文的核心观点有什么关系？"
                 onChange={(e) => setQuestion(e.target.value)}
               />
               <button className="solid" type="submit" disabled={status.state !== "ready"}>
