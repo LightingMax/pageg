@@ -12,6 +12,8 @@ const THUMB_WIDTH = 108;
 const ZOOM_MIN = 0.75;
 const ZOOM_MAX = 1.75;
 const ZOOM_STEP = 0.125;
+const ZOOM_WHEEL_STEP = 0.05;
+const ZOOM_WHEEL_INTERVAL_MS = 70;
 
 type PdfDoc = PDFDocumentProxy;
 type PageMetric = { w: number; h: number };
@@ -296,6 +298,8 @@ export default function PdfPane({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [shelfName, setShelfName] = useState("");
+  const wheelZoomLastAt = useRef<number | null>(null);
+  const wheelZoomDirection = useRef(0);
 
   const active = highlights.find((h) => h.id === activeId) ?? null;
 
@@ -391,13 +395,22 @@ export default function PdfPane({
   useEffect(() => {
     const root = pagesRef.current;
     if (!root || !pdf) return;
+    wheelZoomLastAt.current = null;
+    wheelZoomDirection.current = 0;
     const onWheel = (event: WheelEvent) => {
       if (!(event.ctrlKey || event.metaKey) || (event.target as HTMLElement | null)?.closest(".reader-tools")) return;
+      if (!event.deltaY) return;
       event.preventDefault();
+      const direction = event.deltaY < 0 ? 1 : -1;
+      const now = performance.now();
+      if (direction !== wheelZoomDirection.current) wheelZoomLastAt.current = null;
+      if (wheelZoomLastAt.current !== null && now - wheelZoomLastAt.current < ZOOM_WHEEL_INTERVAL_MS) return;
+      wheelZoomLastAt.current = now;
+      wheelZoomDirection.current = direction;
       setZoom((value) =>
         Math.max(
           ZOOM_MIN,
-          Math.min(ZOOM_MAX, value + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)),
+          Math.min(ZOOM_MAX, value + direction * ZOOM_WHEEL_STEP),
         ),
       );
     };
@@ -806,7 +819,7 @@ export default function PdfPane({
             <button className="tiny" onClick={() => setZoom((value) => Math.min(ZOOM_MAX, value + ZOOM_STEP))}>
               +
             </button>
-            <span>拖选文字后可高亮、划线、备注或添加标签；按住 Ctrl/⌘ 滚轮可缩放</span>
+            <span>拖选文字后可高亮、划线、备注或添加标签；按住 Ctrl/⌘ 滚轮可细调缩放</span>
           </div>
         )}
         {!sourcePath && (
