@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { activeChatSession } from "../lib/chat-history";
 import { inferAskScope } from "../lib/context";
+import MarkdownContent from "./MarkdownContent";
 import type { AcpStatus, AgentInfo, AppSettings, AskScope, BookRecord, ChatHistory, Highlight, ReaderTurn, SelectionPayload } from "../lib/types";
 
 type Tab = "marks" | "tags" | "notes" | "ai" | "glossary";
@@ -241,9 +242,9 @@ export default function SidePanel({
                       <button type="button" onClick={() => onJumpPage(item.page)}>
                         第 {item.page} 页 · {item.scope === "book" ? "整本书" : item.scope === "selection" ? "选区" : item.intent === "translate" ? "翻译" : item.intent === "explain" ? "解释" : "当前页"}
                       </button>
-                      <p>{item.question}</p>
+                      <MarkdownContent text={item.question} />
                     </div>
-                    <div className="chat-answer">{item.answer}</div>
+                    <div className="chat-answer"><MarkdownContent text={item.answer} /></div>
                   </article>
                 ))
               ) : !turn ? (
@@ -251,11 +252,11 @@ export default function SidePanel({
               ) : null}
               {turn && (
                 <article className="chat-turn pending">
-                  {turn.quote ? <div className="chat-question"><p>{turn.quote}</p></div> : null}
-                  <div className="chat-answer">{turn.answer}</div>
+                  {turn.quote ? <div className="chat-question"><MarkdownContent text={turn.quote} /></div> : null}
+                  <div className="chat-answer"><MarkdownContent text={turn.answer} /></div>
                 </article>
               )}
-              {!turn && !activeSession?.turns.length && stream ? <div className="chat-answer">{stream}</div> : null}
+              {!turn && !activeSession?.turns.length && stream ? <div className="chat-answer"><MarkdownContent text={stream} /></div> : null}
           </div>
           <form
             className="ask ai-composer"

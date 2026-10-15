@@ -6,7 +6,6 @@ const DROP_LINE = [
   /tool[_ ]call/i,
   /session\/(prompt|update|new)/i,
   /\bMCP\b/,
-  /^```(?:json|ts|tsx|js|rust|bash)?\s*$/i,
   /^\s*diff --git/,
   /^\s*I'll\b/i,
   /^\s*I will\b/i,
@@ -47,8 +46,9 @@ export function looksLikeGarbage(text: string) {
 export function sanitizeAnswer(raw: string) {
   const stripped = raw
     .replace(/```[\s\S]*?```/g, (block) => {
-      if (/译[：:]/.test(block) || cjkCount(block) > 12) return block.replace(/```/g, "");
-      return "";
+      if (/jsonrpc|tool[_ ]call|session\/(prompt|update|new)/i.test(block)) return "";
+      if (/^```json\b/i.test(block.trim()) && /^\s*\{/.test(block.replace(/^```json\s*/i, ""))) return "";
+      return block;
     })
     .split("\n")
     .filter(keepLine)

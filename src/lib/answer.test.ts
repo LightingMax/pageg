@@ -25,6 +25,12 @@ describe("sanitizeAnswer", () => {
     expect(text).toBe("这句是在说样本已经被固定。");
   });
 
+  it("keeps markdown fences for rich rendering", () => {
+    const text = sanitizeAnswer("**结论**\n\n```python\nx = 1\n```\n\n公式：$x^2 + y^2 = z^2$");
+    expect(text).toContain("```python");
+    expect(text).toContain("$x^2 + y^2 = z^2$");
+  });
+
   it("collapses pdf selection whitespace", () => {
     expect(tidyQuote("The   light\nreaction  ")).toBe("The light reaction");
   });
