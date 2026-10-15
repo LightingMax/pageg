@@ -8,7 +8,7 @@ function now() {
 
 function makeSession(title = "新会话"): ChatSession {
   const stamp = now();
-  return { id: crypto.randomUUID(), title, createdAt: stamp, updatedAt: stamp, turns: [] };
+  return { id: crypto.randomUUID(), title, titleEdited: false, createdAt: stamp, updatedAt: stamp, turns: [] };
 }
 
 export function emptyChatHistory(): ChatHistory {
@@ -67,6 +67,18 @@ export function selectChatSession(history: ChatHistory, id: string): ChatHistory
   return history.sessions.some((session) => session.id === id) ? { ...history, activeSessionId: id } : history;
 }
 
+export function renameChatSession(history: ChatHistory, id: string, title: string): ChatHistory {
+  const nextTitle = title.replace(/\s+/g, " ").trim();
+  if (!nextTitle) return history;
+  const stamp = now();
+  return {
+    ...history,
+    sessions: history.sessions.map((session) =>
+      session.id === id ? { ...session, title: nextTitle, titleEdited: true, updatedAt: stamp } : session,
+    ),
+  };
+}
+
 function turnTitle(question: string) {
   const text = question.replace(/\s+/g, " ").trim();
   return text.length > 24 ? `${text.slice(0, 24)}…` : text || "阅读会话";
@@ -90,7 +102,7 @@ export function appendChatTurn(
       session.id === history.activeSessionId
         ? {
             ...session,
-            title: session.turns.length === 0 ? turnTitle(entry.question) : session.title,
+            title: session.turns.length === 0 && !session.titleEdited ? turnTitle(entry.question) : session.title,
             updatedAt: stamp,
             turns: [...session.turns, turn],
           }

@@ -660,6 +660,22 @@ button:disabled { opacity: 0.45; cursor: default; }
   letter-spacing: 0.08em;
 }
 .chat-session-bar select { width: 100%; min-width: 0; }
+.chat-session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+.session-title-input {
+  width: min(150px, 100%);
+  min-width: 0;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: #fffaf2;
+  color: var(--ink);
+  font-size: 12px;
+}
 .chat-thread {
   display: grid;
   gap: 12px;

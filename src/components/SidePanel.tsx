@@ -26,6 +26,7 @@ type Props = {
   chatHistory: ChatHistory;
   onNewSession: () => void;
   onSelectSession: (id: string) => void;
+  onRenameSession: (id: string, title: string) => void;
   onJumpPage: (page: number) => void;
   onCancel: () => void;
   onJump: (mark: Highlight) => void;
@@ -69,17 +70,37 @@ export default function SidePanel({
   chatHistory,
   onNewSession,
   onSelectSession,
+  onRenameSession,
   onJumpPage,
   language,
 }: Props) {
   const [tab, setTab] = useState<Tab>("marks");
   const [question, setQuestion] = useState("");
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const sorted = [...(book?.highlights ?? [])].sort(
     (a, b) => a.page - b.page || a.createdAt.localeCompare(b.createdAt),
   );
   const marks = sorted.filter((mark) => mark.kind !== "tag");
   const tags = sorted.filter((mark) => mark.kind === "tag");
   const activeSession = activeChatSession(chatHistory);
+
+  const beginRenameSession = () => {
+    if (!activeSession) return;
+    setRenamingSessionId(activeSession.id);
+    setSessionTitleDraft(activeSession.title);
+  };
+
+  const cancelRenameSession = () => {
+    setRenamingSessionId(null);
+    setSessionTitleDraft("");
+  };
+
+  const saveSessionName = () => {
+    if (!renamingSessionId || !sessionTitleDraft.trim()) return;
+    onRenameSession(renamingSessionId, sessionTitleDraft);
+    cancelRenameSession();
+  };
 
   useEffect(() => {
     if (aiTick > 0) setTab("ai");
@@ -225,7 +246,13 @@ export default function SidePanel({
             <div className="chat-session-bar">
               <label>
                 <span>{tr(language, "ai.history")}</span>
-                <select value={chatHistory.activeSessionId} onChange={(e) => onSelectSession(e.target.value)}>
+                <select
+                  value={chatHistory.activeSessionId}
+                  onChange={(e) => {
+                    cancelRenameSession();
+                    onSelectSession(e.target.value);
+                  }}
+                >
                   {chatHistory.sessions.map((session) => (
                     <option key={session.id} value={session.id}>
                       {session.title} · {session.turns.length} {language === "en-US" ? "turns" : "轮"}
@@ -233,9 +260,43 @@ export default function SidePanel({
                   ))}
                 </select>
               </label>
-              <button type="button" className="tiny" onClick={onNewSession}>
-                {tr(language, "ai.newSession")}
-              </button>
+              <div className="chat-session-actions">
+                {renamingSessionId === activeSession?.id ? (
+                  <>
+                    <input
+                      className="session-title-input"
+                      value={sessionTitleDraft}
+                      maxLength={80}
+                      placeholder={tr(language, "ai.renameSessionPlaceholder")}
+                      aria-label={tr(language, "ai.renameSessionPlaceholder")}
+                      onChange={(e) => setSessionTitleDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          saveSessionName();
+                        }
+                        if (e.key === "Escape") cancelRenameSession();
+                      }}
+                      autoFocus
+                    />
+                    <button type="button" className="tiny" onClick={saveSessionName} disabled={!sessionTitleDraft.trim()}>
+                      {tr(language, "ai.saveSessionName")}
+                    </button>
+                    <button type="button" className="tiny" onClick={cancelRenameSession}>
+                      {tr(language, "ai.cancelRename")}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button type="button" className="tiny" onClick={beginRenameSession} disabled={!activeSession}>
+                      {tr(language, "ai.renameSession")}
+                    </button>
+                    <button type="button" className="tiny" onClick={onNewSession}>
+                      {tr(language, "ai.newSession")}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             {logs && <pre className="hint ai-logs">{logs.slice(-1200)}</pre>}
           </div>

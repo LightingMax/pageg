@@ -18,6 +18,7 @@ import {
   emptyChatHistory,
   historyFromLegacySession,
   normalizeChatHistory,
+  renameChatSession,
   selectChatSession,
 } from "./lib/chat-history";
 import type {
@@ -705,6 +706,14 @@ export default function App() {
     void window.pageg.saveChatHistory(book.id, next);
   };
 
+  const renameSession = (id: string, title: string) => {
+    if (!book) return;
+    const next = renameChatSession(chatHistory, id, title);
+    if (next === chatHistory) return;
+    setChatHistory(next);
+    void window.pageg.saveChatHistory(book.id, next);
+  };
+
   const connect = async (agentId = settings.agentId) => {
     const cwd = book?.vaultPath ?? "";
     const next = { ...settings, agentId };
@@ -881,6 +890,7 @@ export default function App() {
           onAsk={({ question, scope }) => void runIntent("ask", question, null, scope)}
           onNewSession={startChatSession}
           onSelectSession={openChatSession}
+          onRenameSession={renameSession}
           onJumpPage={setPage}
           selection={readerSelection}
           onClearSelection={() => setReaderSelection(null)}

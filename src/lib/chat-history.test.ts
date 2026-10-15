@@ -7,6 +7,7 @@ import {
   emptyChatHistory,
   historyFromLegacySession,
   normalizeChatHistory,
+  renameChatSession,
   selectChatSession,
 } from "./chat-history";
 
@@ -34,6 +35,22 @@ describe("per-book chat history", () => {
     const second = createChatSession(first);
     expect(second.activeSessionId).not.toBe(firstId);
     expect(selectChatSession(second, firstId).activeSessionId).toBe(firstId);
+  });
+
+  it("renames a session and keeps the custom title after the first turn", () => {
+    const initial = emptyChatHistory();
+    const history = renameChatSession(initial, initial.activeSessionId, "  研究计划  ");
+    const renamed = history.sessions[0];
+    expect(renamed.title).toBe("研究计划");
+    expect(renamed.titleEdited).toBe(true);
+    const withTurn = appendChatTurn(history, {
+      intent: "ask",
+      scope: "page",
+      page: 1,
+      question: "自动生成标题会覆盖吗？",
+      answer: "不会。",
+    });
+    expect(activeChatSession(withTurn)?.title).toBe("研究计划");
   });
 
   it("repairs malformed stored data", () => {

@@ -109,6 +109,8 @@ export type ChatTurn = {
 export type ChatSession = {
   id: string;
   title: string;
+  /** True after the reader explicitly renames the session. */
+  titleEdited?: boolean;
   createdAt: string;
   updatedAt: string;
   turns: ChatTurn[];
