@@ -110,6 +110,21 @@ describe("assemblePrompt", () => {
     expect(prompt).toContain("全书压缩上下文");
     expect(prompt).toContain("与问题相关的原文页");
   });
+
+  it("asks the agent for a structured PDF link on download requests", () => {
+    const prompt = assemblePrompt({
+      intent: "ask",
+      book,
+      page: 1,
+      selected: "",
+      context: "",
+      extra: "帮我下载 mem0 的论文",
+      scope: "book",
+      bookDigest: "这是一本关于智能体记忆的论文。",
+    });
+    expect(prompt).toContain("PAGEG_DOWNLOAD");
+    expect(prompt).toContain("HTTPS PDF");
+  });
 });
 
 describe("sessionBlock", () => {

@@ -208,6 +208,9 @@ export default function SidePanel({
             <p className="hint">
               {tr(language, "ai.hint")}
             </p>
+            <p className="hint paper-download-hint">
+              {tr(language, "ai.paperDownloadHint")}
+            </p>
             <select
               value={settings.agentId}
               onChange={(e) => onSettings({ ...settings, agentId: e.target.value })}

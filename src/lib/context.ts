@@ -4,6 +4,11 @@ import { tidyQuote } from "./answer";
 const BOOK_SCOPE_HINTS = /整本|全书|全文|整篇|这本书|这篇文章|这篇论文|本文的|文章整体|全文脉络|从头到尾|whole\s+book|entire\s+(book|paper|article)|this\s+(paper|article)|overall/i;
 const PAGE_SCOPE_HINTS = /当前页|本页|这一页|这页|该页|第\s*\d+\s*页|this\s+page|on\s+this\s+page/i;
 const BROAD_QUESTION_HINTS = /总结|概括|主要思想|核心观点|章节|论证|摘要|作者|贡献|研究问题|研究内容|方法|结论|主题|意义|局限|讲了什么|summary|summarize|main\s+idea|argument/i;
+const DOWNLOAD_HINTS = /下载|下.{0,2}(论文|pdf)|帮我(找|搜|下载)|找.{0,8}(论文|pdf)|论文.{0,8}(下载|pdf)|pdf.{0,8}(下载|找)|\b(?:download|fetch|get|find)\b.{0,24}\b(?:paper|pdf|article)\b/i;
+
+export function wantsPaperDownload(question: string) {
+  return DOWNLOAD_HINTS.test(question.trim());
+}
 
 /** Pick a reading range from the user's wording while preserving a live selection. */
 export function inferAskScope(question: string, hasSelection: boolean): AskScope {
@@ -43,6 +48,7 @@ export function assemblePrompt(opts: {
   const nearby = tidyQuote(opts.context);
   const glossaryHits = pickGlossary(opts.book.glossary, quote);
   const recent = tidyQuote((opts.sessionLog ?? "").slice(-6000));
+  const downloadRequest = opts.intent === "ask" && wantsPaperDownload(opts.extra ?? "");
   const job =
     opts.intent === "translate"
       ? [
@@ -61,6 +67,9 @@ export function assemblePrompt(opts: {
             `问题：${tidyQuote(opts.extra ?? "")}`,
             "Pageg 已经从 PDF 中提取并在本提示中提供正文。请直接依据所提供的正文或全书压缩上下文回答，不要声称无法读取正文。",
             "给出清楚的结论和必要依据；引用内容时标出页码。资料确实没有覆盖问题时，再明确指出缺口，不要猜测。",
+            downloadRequest
+              ? "用户还要求寻找并下载相关论文。若你能找到可靠的公开 PDF 地址，请在回答末尾单独输出一行：PAGEG_DOWNLOAD: {\"url\":\"https://...pdf\",\"filename\":\"可选文件名.pdf\",\"title\":\"可选标题\"}。URL 必须是你确认存在的 HTTPS PDF 或 arXiv 地址，找不到时不要编造。"
+              : "",
           ].join("\n");
 
   const scopeLabel =
@@ -70,7 +79,9 @@ export function assemblePrompt(opts: {
   const relevant = opts.relevantText?.trim() ?? "";
 
   return [
-    "你现在是阅读助手，不是编程助手。禁止调用工具、读仓库、改文件、列 TODO。",
+    downloadRequest
+      ? "你现在是阅读助手。可以在可用时进行公开网页检索来寻找论文，但不要读本地仓库、改文件或列 TODO。"
+      : "你现在是阅读助手，不是编程助手。禁止调用工具、读仓库、改文件、列 TODO。",
     `书名：${opts.book.title}　页码：${opts.page}`,
     opts.intent === "ask" ? `阅读范围：${scopeLabel}` : "",
     quote ? `原文：\n${quote}` : "",

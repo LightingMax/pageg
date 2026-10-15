@@ -5,6 +5,9 @@ export const pageg = {
   openPdf: () => invoke("open_pdf"),
   openPdfPath: (path: string) => invoke("open_pdf_path", { path }),
   importPdf: (name: string, data: number[]) => invoke("import_pdf_bytes", { name, data }),
+  downloadPdf: (url: string, filename = "") => invoke("download_pdf", { url, filename }),
+  searchAndDownloadPaper: (query: string, filename = "") =>
+    invoke("search_and_download_pdf", { query, filename }),
   readPdf: async (filePath: string) => {
     const bytes = await invoke<number[]>("read_pdf", { path: filePath });
     return new Uint8Array(bytes).buffer;

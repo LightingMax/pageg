@@ -58,6 +58,212 @@ async fn import_pdf_bytes(
     vault::ingest_pdf(&app, &data, &name)
 }
 
+fn download_filename(url: &str, requested: &str) -> String {
+    let source = if requested.trim().is_empty() {
+        url.split('?')
+            .next()
+            .and_then(|value| value.rsplit('/').next())
+            .unwrap_or("download.pdf")
+    } else {
+        requested.trim()
+    };
+    let mut name = source
+        .chars()
+        .map(|ch| {
+            if ch.is_control() || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+            {
+                '_'
+            } else {
+                ch
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .trim_matches('.')
+        .to_string();
+    if name.is_empty() {
+        name = "download".into();
+    }
+    if !name.to_lowercase().ends_with(".pdf") {
+        name.push_str(".pdf");
+    }
+    if name.len() > 180 {
+        name.truncate(180);
+        if !name.to_lowercase().ends_with(".pdf") {
+            name.push_str(".pdf");
+        }
+    }
+    name
+}
+
+fn search_terms(query: &str) -> String {
+    let mut terms = Vec::new();
+    let mut current = String::new();
+    for ch in query.chars() {
+        if ch.is_ascii_alphanumeric() {
+            current.push(ch);
+        } else if !current.is_empty() {
+            if current.len() > 1
+                && !matches!(
+                    current.to_lowercase().as_str(),
+                    "pdf" | "download" | "paper"
+                )
+            {
+                terms.push(current.clone());
+            }
+            current.clear();
+        }
+    }
+    if current.len() > 1
+        && !matches!(
+            current.to_lowercase().as_str(),
+            "pdf" | "download" | "paper"
+        )
+    {
+        terms.push(current);
+    }
+    if terms.is_empty() {
+        query
+            .split_whitespace()
+            .take(8)
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        terms.into_iter().take(8).collect::<Vec<_>>().join(" ")
+    }
+}
+
+fn encode_query(value: &str) -> String {
+    value
+        .as_bytes()
+        .iter()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (*byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
+fn xml_value(block: &str, tag: &str) -> Option<String> {
+    let start = format!("<{tag}>");
+    let end = format!("</{tag}>");
+    let value = block.split_once(&start)?.1.split_once(&end)?.0.trim();
+    Some(
+        value
+            .replace("&amp;", "&")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">"),
+    )
+}
+
+fn arxiv_pdf_url(block: &str) -> Option<String> {
+    let marker = block.find("title=\"pdf\"")?;
+    let start = block[..marker].rfind("<link")?;
+    let rest = &block[start..];
+    let link = &rest[..rest.find('>')?];
+    let href = link.split_once("href=\"")?.1.split_once('"')?.0;
+    let url = href.replace("http://", "https://");
+    url.starts_with("https://").then_some(url)
+}
+
+async fn search_arxiv_pdf(
+    client: &reqwest::Client,
+    query: &str,
+) -> Result<(String, String), String> {
+    let terms = search_terms(query);
+    if terms.trim().is_empty() {
+        return Err("没有足够的论文关键词".into());
+    }
+    let endpoint = format!(
+        "https://export.arxiv.org/api/query?search_query=all%3A{}&start=0&max_results=5&sortBy=relevance&sortOrder=descending",
+        encode_query(&terms)
+    );
+    let response = client
+        .get(endpoint)
+        .send()
+        .await
+        .map_err(|e| format!("搜索公开论文失败：{e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("论文搜索返回 HTTP {}", response.status()));
+    }
+    let xml = response
+        .text()
+        .await
+        .map_err(|e| format!("读取论文搜索结果失败：{e}"))?;
+    for block in xml.split("<entry>").skip(1) {
+        if let Some(url) = arxiv_pdf_url(block) {
+            let title = xml_value(block, "title").unwrap_or_else(|| terms.clone());
+            return Ok((url, title.replace('\n', " ").trim().to_string()));
+        }
+    }
+    Err(format!("没有找到与“{terms}”匹配的开放 PDF"))
+}
+
+#[tauri::command]
+async fn download_pdf(
+    app: AppHandle,
+    url: String,
+    filename: String,
+) -> Result<vault::BookRecord, String> {
+    let url = url.trim();
+    if !url.to_lowercase().starts_with("https://") {
+        return Err("论文下载只允许使用 HTTPS 地址".into());
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("Pageg/0.1 (local PDF reader)")
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("无法初始化下载器：{e}"))?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("下载论文失败：{e}"))?;
+    if response.url().scheme() != "https" {
+        return Err("论文下载重定向到了非 HTTPS 地址".into());
+    }
+    if !response.status().is_success() {
+        return Err(format!("论文地址返回 HTTP {}", response.status()));
+    }
+    const MAX_DOWNLOAD_BYTES: u64 = 80 * 1024 * 1024;
+    if response.content_length().unwrap_or(0) > MAX_DOWNLOAD_BYTES {
+        return Err("论文文件超过 80 MB，已停止下载".into());
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("读取论文文件失败：{e}"))?;
+    if bytes.len() as u64 > MAX_DOWNLOAD_BYTES {
+        return Err("论文文件超过 80 MB，已停止下载".into());
+    }
+    vault::ingest_pdf(&app, &bytes, &download_filename(url, &filename))
+}
+
+#[tauri::command]
+async fn search_and_download_pdf(
+    app: AppHandle,
+    query: String,
+    filename: String,
+) -> Result<vault::BookRecord, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("Pageg/0.1 (local PDF reader)")
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("无法初始化论文搜索：{e}"))?;
+    let (url, title) = search_arxiv_pdf(&client, &query).await?;
+    let suggested = if filename.trim().is_empty() {
+        format!("{title}.pdf")
+    } else {
+        filename
+    };
+    download_pdf(app, url, suggested).await
+}
+
 #[tauri::command]
 async fn read_pdf(path: String) -> Result<Vec<u8>, String> {
     tokio::fs::read(&path)
@@ -297,6 +503,8 @@ pub fn run() {
             open_pdf,
             open_pdf_path,
             import_pdf_bytes,
+            download_pdf,
+            search_and_download_pdf,
             read_pdf,
             library_list,
             library_load,
@@ -336,4 +544,36 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Pageg");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn download_names_are_safe_pdf_filenames() {
+        assert_eq!(
+            download_filename("https://arxiv.org/pdf/2504.19413v1", "Mem0: paper/2025"),
+            "Mem0_ paper_2025.pdf"
+        );
+        assert_eq!(
+            download_filename("https://arxiv.org/pdf/2504.19413v1", ""),
+            "2504.19413v1.pdf"
+        );
+    }
+
+    #[test]
+    fn search_terms_keep_the_research_keyword() {
+        assert_eq!(search_terms("帮我下载 mem0 的论文"), "mem0");
+    }
+
+    #[test]
+    fn arxiv_links_are_read_from_atom_entries() {
+        let entry = r#"<entry><title>Mem0: Paper</title><link href="https://arxiv.org/abs/2504.19413v1" rel="alternate"/><link href="https://arxiv.org/pdf/2504.19413v1" rel="related" type="application/pdf" title="pdf"/></entry>"#;
+        assert_eq!(
+            arxiv_pdf_url(entry).as_deref(),
+            Some("https://arxiv.org/pdf/2504.19413v1")
+        );
+        assert_eq!(xml_value(entry, "title").as_deref(), Some("Mem0: Paper"));
+    }
 }

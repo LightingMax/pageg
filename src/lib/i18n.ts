@@ -155,6 +155,7 @@ const messages: Record<Language, Record<string, MessageValue>> = {
     "ai.currentPage": "当前页",
     "ai.translate": "翻译",
     "ai.explain": "解释",
+    "ai.paperDownloadHint": "如果找到可靠的公开论文，Pageg 会下载并加载到书桌。",
   },
   "en-US": {
     "app.subtitle": "Local reading · On-demand intelligence",
@@ -308,6 +309,7 @@ const messages: Record<Language, Record<string, MessageValue>> = {
     "ai.currentPage": "Current page",
     "ai.translate": "Translate",
     "ai.explain": "Explain",
+    "ai.paperDownloadHint": "When a reliable public paper is found, Pageg downloads and loads it onto your desk.",
   },
 };
 

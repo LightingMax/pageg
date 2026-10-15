@@ -11,6 +11,7 @@ import { extractPdfMetadata } from "./lib/pdf-metadata";
 import { extractDocumentContext, validDocumentContext } from "./lib/pdf-context";
 import { buildBookDigest, relevantPages, validBookDigest } from "./lib/book-context";
 import { tr } from "./lib/i18n";
+import { extractPaperDownload, wantsPaperDownload } from "./lib/paper-download";
 import {
   appendChatTurn,
   conversationMemory,
@@ -633,7 +634,19 @@ export default function App() {
       }
       const raw =
         intent === "ask" ? await window.pageg.acpPromptIsolated(prompt) : await window.pageg.acpPrompt(prompt);
-      const result = readerAnswer(raw, intent);
+      const downloadRequest = intent === "ask" && wantsPaperDownload(extra ?? "");
+      const extracted = extractPaperDownload(raw, downloadRequest);
+      const parsedResult = readerAnswer(extracted.text, intent);
+      const result =
+        !parsedResult.ok && downloadRequest
+          ? {
+              ok: true,
+              text:
+                language === "en-US"
+                  ? "I found a paper and am downloading it into your reading desk…"
+                  : "我找到了一篇相关论文，正在下载并加载到你的书桌…",
+            }
+          : parsedResult;
       if (currentBookId.current === requestBook.id) setStream(result.text);
       updateTurn({ intent, quote: selected || extra || "", answer: result.text, ok: result.ok });
       if (!result.ok) {
@@ -680,6 +693,35 @@ export default function App() {
               }
             : prev,
         );
+      }
+      if (downloadRequest && extracted.candidate) {
+        try {
+          const downloaded = (await window.pageg.downloadPdf(
+            extracted.candidate.url,
+            extracted.candidate.filename ?? extracted.candidate.title ?? "",
+          )) as BookRecord;
+          await adoptBook(downloaded);
+        } catch (downloadError) {
+          if (currentBookId.current === requestBook.id) {
+            setError(
+              (language === "en-US" ? "Paper download failed" : "论文下载失败") + "：" + asError(downloadError),
+            );
+          }
+        }
+      }
+      if (downloadRequest && !extracted.candidate) {
+        try {
+          const downloaded = (await window.pageg.searchAndDownloadPaper(extra ?? "")) as BookRecord;
+          await adoptBook(downloaded);
+        } catch (downloadError) {
+          if (currentBookId.current === requestBook.id) {
+            setError(
+              (language === "en-US" ? "Paper search or download failed" : "论文搜索或下载失败") +
+                "：" +
+                asError(downloadError),
+            );
+          }
+        }
       }
     } catch (err) {
       const message = asError(err);
