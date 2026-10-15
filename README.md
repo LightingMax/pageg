@@ -1,68 +1,112 @@
 # Pageg
 
-本地 PDF 阅读器。架构和 [Codeg](https://github.com/xintaofei/codeg) 对齐：**Rust 核心 + Tauri 2 壳 + React/pdf.js 界面**。
+Pageg 是一个面向长文档阅读的本地 AI PDF 阅读器。它把 PDF 阅读、可恢复的标注和书籍级 AI 对话放在同一个桌面工作区里，让你可以边读边问，并且在切换书籍时自动切换 AI 上下文。
 
-它不自己托管模型。Rust 侧拉起 Codex / Claude / Gemini 的真实 CLI，在 stdio 上走 Agent Client Protocol。PDF 负责读，AI 只在你点「翻译 / 解释 / 提问」时才出场。
+![Pageg reader](docs/pageg-reader.png)
 
-## 为什么是 Rust + Tauri，而不是把 PDF 也用 Rust 画
+## 功能
 
-Codeg 也是这样分层的：
-
-- **Rust**：进程生命周期、ACP JSON-RPC、本地 vault、通知、文件对话框
-- **Webview UI**：pdf.js 做选区和文本层。这一层继续用 JS，是因为划线/翻译依赖浏览器文本层，硬用 Rust 光栅化 PDF 会把交互做差
-
-高性能用在该用的地方：agent 子进程和磁盘，不是每一帧 canvas。
+- **三栏阅读工作区**：左侧书架和页面缩略图、中间 PDF 阅读器、右侧 AI 面板。左右分隔线可以直接拖动，也可以在设置中调整并持久化。
+- **PDF 常用操作**：文本选择、复制、高亮、下划线、删除线、备注和自定义标签。标签可以从标签面板直接定位回原文页面。
+- **细致缩放**：工具栏的 `− / +` 按钮，以及按住 `Ctrl`（macOS 为 `⌘`）滚动鼠标滚轮进行细调。
+- **书架和书桌**：导入的 PDF 会进入本地书库，书架支持文件夹式整理和元数据编辑，最近阅读的书会保留在书桌视图中。
+- **自动文献索引**：导入 PDF 后提取标题、作者、摘要等可识别信息，并在本地建立索引，方便搜索和后续 AI 提问。
+- **书籍级上下文**：切换 PDF 时，阅读页、选区、标签、笔记和 AI 会话随当前书籍切换，避免把上一本文献的内容带到下一本。
+- **会话历史**：右侧 AI 区支持新建会话、切换历史会话和继续追问；历史记录按书籍保存。
+- **智能范围判断**：只需要一个提问框。Pageg 会结合当前选中文字、当前页和整本书内容，判断适合的上下文范围，不需要用户手动选择模式。
+- **Markdown / LaTeX**：AI 回复支持标题、列表、表格、代码块、引用和 LaTeX 数学公式渲染。
+- **中英文界面**：在「环境 / Settings」中切换简体中文或 English，语言和布局设置会保存到本机。
+- **本地优先**：书库、标注、笔记和会话保存在本地 vault。AI 通过本机已安装的 ACP（Agent Client Protocol）命令行代理连接。
 
 ## 技术路线
 
-Pageg 的跨平台边界由 Tauri 负责：同一套 Rust 核心分别编译为 macOS、Windows 和 Linux 原生程序，React/pdf.js 界面运行在系统 WebView 中。Rust 负责本地文件、书库、智能体进程和 ACP 通信；React/pdf.js 负责 PDF 渲染、文本选区、标注和交互。这样既保留原生安装包和较小体积，也不用分别维护三套阅读界面。
+Pageg 使用 Rust + Tauri 2 + React + pdf.js：
 
-桌面应用从 Finder、开始菜单或应用启动器打开时，通常拿不到终端的完整 `PATH`。Pageg 会补充各系统的常用 CLI 目录；macOS 还会识别 Homebrew、NVM、fnm、Volta、Cargo 和用户目录中的 Cursor CLI。
+```text
+┌────────────────────────────────────────────────────────────┐
+│ React / TypeScript                                          │
+│ 书架 · PDF 文本层与标注 · AI 会话 · Markdown / KaTeX        │
+└──────────────────────────────┬─────────────────────────────┘
+                               │ Tauri commands / events
+┌──────────────────────────────┴─────────────────────────────┐
+│ Rust / Tauri 2                                              │
+│ 本地 vault · 文件与设置 · ACP JSON-RPC · agent 生命周期     │
+└──────────────────────────────┬─────────────────────────────┘
+                               │ stdio
+                    Codex / Claude / Gemini CLI
+```
 
-## 本机怎么跑
+Rust 负责进程生命周期、本地文件、设置持久化和 ACP 通信；React/pdf.js 负责 PDF 的文本层、选区、渲染和交互。Tauri 提供同一套代码到 macOS、Windows 和 Linux 的打包边界，避免为每个平台维护一套阅读器 UI。
 
-macOS 需要：
+Pageg 不内置模型，也不会把 PDF 自动上传到远端服务。连接 AI 时，Rust 会启动本机可用的 ACP 代理，并把当前书籍中与问题相关的内容交给代理处理。桌面启动时还会补充 Homebrew、NVM、fnm、Volta、Cargo 和用户目录中的常见 CLI 路径。
 
-1. Xcode Command Line Tools：`xcode-select --install`
-2. Rust stable（推荐 rustup）
-3. Node.js 22+
+## 快速开始
+
+### 环境要求
+
+- Node.js 22+
+- Rust stable（推荐通过 rustup 安装）
+- macOS 11+、Windows 10/11 或安装了 Tauri WebKitGTK 依赖的 Linux
+- 可选：本机安装并登录 Codex、Claude 或 Gemini 等 ACP 代理
+
+### 开发运行
 
 ```bash
+git clone https://github.com/LightingMax/pageg.git
 cd pageg
 npm ci
 npm run tauri dev
 ```
 
-生成可双击安装的 macOS 应用和 DMG：
+### 构建安装包
+
+在目标系统上执行对应命令：
 
 ```bash
+# macOS：.app 和 .dmg
 npm run bundle:mac
+
+# Windows：NSIS 安装程序
+npm run bundle:windows
+
+# Linux：AppImage 和 deb
+npm run bundle:linux
 ```
 
-产物位于 `src-tauri/target/release/bundle/`。Apple Silicon 和 Intel Mac 分别在对应机器上构建，或给 rustup 安装另一架构 target 后交叉构建。
+产物位于 `src-tauri/target/release/bundle/`。Apple Silicon 和 Intel macOS 安装包建议分别在对应架构的机器上构建。
 
-Windows 需要：
-
-1. Rust (`rustup`, MSVC toolchain)
-2. Visual Studio 2022 Build Tools，勾选 **Desktop development with C++**
-3. Node.js 22+
-4. WebView2（Win10/11 一般已带）
+### 测试和检查
 
 ```bash
-cd pageg
-npm ci
-npm run tauri dev
+npm test -- --run
+npm run build
+cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-Linux 使用同一套代码，需安装发行版对应的 WebKitGTK/Tauri 系统依赖，然后运行 `npm run bundle:linux`。
+## 使用提示
 
-第一次编译 Rust 依赖会比较久。打开一本 PDF → 右侧 AI 面板点「连接 Agent」→ 划线后点翻译或解释。
+1. 点击「导入 PDF」，或把 PDF 拖入 Pageg 的书桌区域。
+2. 在左侧书架选择书籍和页面；中间文本层支持拖选。
+3. 选中文字后可以直接复制、标注、添加标签或发送到 AI。
+4. 在右下角提问框输入自然语言问题。Pageg 会自动判断使用选区、当前页或整本书。
+5. 在「环境 / Settings」中切换语言、调整左右栏宽度，或恢复默认布局。
 
 ## 仓库结构
 
+```text
+src/                         React + TypeScript 界面
+src/components/PdfPane.tsx   PDF 页面、文本层、缩放和标注
+src/components/SidePanel.tsx AI、标签、笔记、术语表和会话历史
+src/components/DeskHome.tsx 书桌、书架和文献索引
+src/lib/i18n.ts              中英文文案和插值函数
+src-tauri/src/acp.rs         ACP JSON-RPC 客户端
+src-tauri/src/vault.rs       本地书库、设置和会话持久化
+skills/                      注入书本 vault 的阅读技能
+docs/                        项目文档和界面截图
 ```
-src/                 React + pdf.js
-src-tauri/src/acp.rs ACP 客户端（spawn / initialize / session / prompt）
-src-tauri/src/vault.rs 每本书的 Markdown 笔记
-skills/              注入到书本 vault 里的阅读技能
-```
+
+## 开源许可
+
+Pageg 以 [MIT License](LICENSE) 发布。第三方依赖分别遵循其各自许可证。
+
+欢迎提交 Issue 和 Pull Request：可以从 PDF 交互、跨平台打包、AI 代理适配和阅读工作区设计等方向参与改进。

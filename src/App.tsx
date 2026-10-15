@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import DeskHome from "./components/DeskHome";
 import PdfPane from "./components/PdfPane";
@@ -10,6 +10,7 @@ import { readerAnswer, tidyQuote } from "./lib/answer";
 import { extractPdfMetadata } from "./lib/pdf-metadata";
 import { extractDocumentContext, validDocumentContext } from "./lib/pdf-context";
 import { buildBookDigest, relevantPages, validBookDigest } from "./lib/book-context";
+import { tr } from "./lib/i18n";
 import {
   appendChatTurn,
   conversationMemory,
@@ -43,9 +44,17 @@ const defaultSettings: AppSettings = {
   agentId: "cursor",
   customCommand: "",
   handedness: "right",
+  language: "zh-CN",
+  leftPanelWidth: 148,
+  rightPanelWidth: 360,
   openTabs: [],
   currentShelf: "",
 };
+
+const MIN_LEFT_PANEL = 104;
+const MAX_LEFT_PANEL = 320;
+const MIN_RIGHT_PANEL = 280;
+const MAX_RIGHT_PANEL = 620;
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -60,10 +69,19 @@ function asError(error: unknown) {
 }
 
 function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppSettings {
+  const leftPanelWidth = Number(value?.leftPanelWidth);
+  const rightPanelWidth = Number(value?.rightPanelWidth);
   return {
     ...defaultSettings,
     ...value,
     handedness: value?.handedness === "left" ? "left" : "right",
+    language: value?.language === "en-US" ? "en-US" : "zh-CN",
+    leftPanelWidth: Number.isFinite(leftPanelWidth)
+      ? Math.min(MAX_LEFT_PANEL, Math.max(MIN_LEFT_PANEL, leftPanelWidth))
+      : defaultSettings.leftPanelWidth,
+    rightPanelWidth: Number.isFinite(rightPanelWidth)
+      ? Math.min(MAX_RIGHT_PANEL, Math.max(MIN_RIGHT_PANEL, rightPanelWidth))
+      : defaultSettings.rightPanelWidth,
     openTabs: value?.openTabs ?? [],
     currentShelf: value?.currentShelf ?? "",
   };
@@ -89,11 +107,60 @@ export default function App() {
   const [turn, setTurn] = useState<ReaderTurn | null>(null);
   const [aiTick, setAiTick] = useState(0);
   const [readerSelection, setReaderSelection] = useState<SelectionPayload | null>(null);
+  const [resizing, setResizing] = useState<"left" | "right" | null>(null);
+  const resizeStart = useRef<{ side: "left" | "right"; x: number; width: number } | null>(null);
   const autoTried = useRef(false);
   const indexingIds = useRef(new Set<string>());
   const contextRequests = useRef(new Map<string, Promise<DocumentContext>>());
   const currentBookId = useRef<string | null>(null);
   const requestBookId = useRef<string | null>(null);
+  const language = settings.language;
+
+  const startResize = useCallback((side: "left" | "right", event: ReactPointerEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    resizeStart.current = {
+      side,
+      x: event.clientX,
+      width: side === "left" ? settings.leftPanelWidth : settings.rightPanelWidth,
+    };
+    setResizing(side);
+  }, [settings.leftPanelWidth, settings.rightPanelWidth]);
+
+  const nudgeResize = useCallback((side: "left" | "right", delta: number) => {
+    setSettings((previous) => {
+      const key = side === "left" ? "leftPanelWidth" : "rightPanelWidth";
+      const min = side === "left" ? MIN_LEFT_PANEL : MIN_RIGHT_PANEL;
+      const max = side === "left" ? MAX_LEFT_PANEL : MAX_RIGHT_PANEL;
+      return { ...previous, [key]: Math.min(max, Math.max(min, previous[key] + delta)) };
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!resizing) return;
+    const onMove = (event: globalThis.PointerEvent) => {
+      const start = resizeStart.current;
+      if (!start) return;
+      const delta = event.clientX - start.x;
+      const next = start.width + (start.side === "left" ? delta : -delta);
+      const min = start.side === "left" ? MIN_LEFT_PANEL : MIN_RIGHT_PANEL;
+      const max = start.side === "left" ? MAX_LEFT_PANEL : MAX_RIGHT_PANEL;
+      const key = start.side === "left" ? "leftPanelWidth" : "rightPanelWidth";
+      setSettings((previous) => ({ ...previous, [key]: Math.min(max, Math.max(min, next)) }));
+    };
+    const finish = () => {
+      resizeStart.current = null;
+      setResizing(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", finish, { once: true });
+    window.addEventListener("pointercancel", finish, { once: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+    };
+  }, [resizing]);
 
   const refreshLibrary = useCallback(async () => {
     setLibrary((await window.pageg.listLibrary()) as BookMeta[]);
@@ -113,10 +180,10 @@ export default function App() {
         setBook((current) => (current?.id === enriched.id ? enriched : current));
         await refreshLibrary();
       } catch (err) {
-        setError(`文献信息识别失败：${asError(err)}`);
+        setError(`${tr(language, "desk.metadataError")}：${asError(err)}`);
       }
     },
-    [refreshLibrary],
+    [language, refreshLibrary],
   );
 
   useEffect(() => {
@@ -301,7 +368,7 @@ export default function App() {
       setDragging(false);
       const file = [...(e.dataTransfer?.files ?? [])].find((f) => f.name.toLowerCase().endsWith(".pdf"));
       if (file) void openFromFile(file);
-      else setError("请拖入 PDF 文件");
+      else setError(tr(language, "app.dropPdfError"));
     };
     window.addEventListener("dragover", onDragOver);
     window.addEventListener("dragleave", onDragLeave);
@@ -311,7 +378,7 @@ export default function App() {
       window.removeEventListener("dragleave", onDragLeave);
       window.removeEventListener("drop", onDrop);
     };
-  }, [openFromFile]);
+  }, [language, openFromFile]);
 
   useEffect(() => {
     let gone = false;
@@ -323,7 +390,7 @@ export default function App() {
           setDragging(false);
           const path = event.payload.paths.find((item) => item.toLowerCase().endsWith(".pdf"));
           if (path) void openFromPath(path);
-          else setError("请拖入 PDF 文件");
+          else setError(tr(language, "app.dropPdfError"));
         } else {
           setDragging(false);
         }
@@ -337,7 +404,7 @@ export default function App() {
       gone = true;
       unlisten?.();
     };
-  }, [openFromPath]);
+  }, [language, openFromPath]);
 
   const openFromLibrary = async (id: string) => {
     try {
@@ -474,7 +541,7 @@ export default function App() {
       if (currentBookId.current === requestBook.id) setTurn(next);
     };
     if (status.state !== "ready" && status.state !== "prompting") {
-      setError("还没连上智能体。点右上角状态钮，连上后再翻译。");
+      setError(tr(language, "app.connectBeforeAsk"));
       setSetupOpen(true);
       return;
     }
@@ -486,7 +553,7 @@ export default function App() {
     updateTurn({
       intent,
       quote: selected || extra || "",
-      answer: intent === "translate" ? "正在翻译…" : intent === "explain" ? "正在解释…" : "正在回答…",
+      answer: intent === "translate" ? tr(language, "app.translating") : intent === "explain" ? tr(language, "app.explaining") : tr(language, "app.answering"),
       ok: true,
     });
     try {
@@ -495,7 +562,7 @@ export default function App() {
       let relevantText = "";
       if (intent === "ask") {
         if (scope === "selection") {
-          if (!activeSelection?.text.trim()) throw new Error("请先在 PDF 中选中一段文字，再使用“选区”提问。 ");
+          if (!activeSelection?.text.trim()) throw new Error(tr(language, "app.selectText"));
           sourceText = activeSelection.context || activeSelection.text;
         } else {
           let pending = contextRequests.current.get(book.id);
@@ -503,13 +570,13 @@ export default function App() {
             pending = (async () => {
               const cached = await window.pageg.readDocumentContext(book.id);
               if (validDocumentContext(cached, book.pageCount)) return cached;
-              updateTurn({ intent: "ask", quote: extra || "", answer: "正在提取 PDF 正文…", ok: true });
+              updateTurn({ intent: "ask", quote: extra || "", answer: tr(language, "app.extracting"), ok: true });
               const buffer = await window.pageg.readPdf(book.sourcePath);
               const context = await extractDocumentContext(buffer, (done, total) => {
                 updateTurn({
                   intent: "ask",
                   quote: extra || "",
-                  answer: `正在提取 PDF 正文 ${done}/${total} 页…`,
+                  answer: tr(language, "app.extractingPage", { done, total }),
                   ok: true,
                 });
               });
@@ -524,13 +591,13 @@ export default function App() {
           });
           if (scope === "page") {
             sourceText = documentContext.pages.find((item) => item.page === page)?.text ?? "";
-            if (!sourceText) throw new Error(`第 ${page} 页没有提取到可读文字，可能是扫描版 PDF。`);
+              if (!sourceText) throw new Error(language === "en-US" ? `Page ${page} has no extractable text; it may be a scanned PDF.` : `第 ${page} 页没有提取到可读文字，可能是扫描版 PDF。`);
           } else {
             const cachedDigest = await window.pageg.readBookDigest(book.id);
             let digest: BookDigest;
             if (validBookDigest(cachedDigest, documentContext)) {
               digest = cachedDigest;
-              updateTurn({ intent: "ask", quote: extra || "", answer: "已载入全书压缩上下文，正在回答…", ok: true });
+              updateTurn({ intent: "ask", quote: extra || "", answer: tr(language, "app.digestLoaded"), ok: true });
             } else {
               digest = await buildBookDigest(
                 book,
@@ -561,7 +628,7 @@ export default function App() {
         relevantText,
       });
       if (intent === "ask") {
-        updateTurn({ intent, quote: selected || extra || "", answer: "正文已就绪，正在回答…", ok: true });
+        updateTurn({ intent, quote: selected || extra || "", answer: tr(language, "app.readyAnswer"), ok: true });
       }
       const raw =
         intent === "ask" ? await window.pageg.acpPromptIsolated(prompt) : await window.pageg.acpPrompt(prompt);
@@ -580,7 +647,7 @@ export default function App() {
         intent,
         scope: intent === "ask" ? scope : undefined,
         page: targetPage,
-        question: selected || extra || (intent === "translate" ? "翻译选区" : "解释选区"),
+        question: selected || extra || (intent === "translate" ? tr(language, "app.translateSelection") : tr(language, "app.explainSelection")),
         answer: result.text,
       });
       await window.pageg.saveChatHistory(requestBook.id, nextHistory);
@@ -661,14 +728,14 @@ export default function App() {
 
   const chipLabel =
     status.state === "ready"
-      ? `已连接 ${status.agentName ?? "智能体"}`
+      ? tr(language, "app.connected", { name: status.agentName ?? (language === "en-US" ? "agent" : "智能体") })
       : status.state === "connecting"
-        ? `正在连接 ${status.agentName ?? "智能体"}…`
+        ? tr(language, "app.connecting", { name: status.agentName ?? (language === "en-US" ? "agent" : "智能体") })
         : status.state === "prompting"
-          ? `${status.agentName ?? "智能体"} 工作中`
+          ? tr(language, "app.working", { name: status.agentName ?? (language === "en-US" ? "agent" : "智能体") })
           : status.state === "error"
-            ? "连接失败 · 点这里看原因"
-            : "未连接智能体";
+            ? tr(language, "app.connectionFailed")
+            : tr(language, "app.unconnected");
 
   const pageLabel = useMemo(() => `${page} / ${pageCount}`, [page, pageCount]);
   const tabs = useMemo(
@@ -678,7 +745,7 @@ export default function App() {
 
   return (
     <div className={`app ${book ? "reading-mode" : "home-mode"} ${dragging ? "dragging" : ""}`}>
-      {dragging && book && <div className="drop-overlay">松开即可导入 PDF</div>}
+      {dragging && book && <div className="drop-overlay">{tr(language, "app.dropImport")}</div>}
       {error && (
         <button className="banner-error" onClick={() => setError(null)}>
           {error}
@@ -695,22 +762,22 @@ export default function App() {
             setTurn(null);
             setStream("");
           }}
-          title="回到我的书桌"
+          title={tr(language, "app.backDesk")}
         >
           <b>PAGEG</b>
-          <span>本地阅读 · 按需智能</span>
+          <span>{tr(language, "app.subtitle")}</span>
         </button>
         <div className="pager">
           <button className="tiny" disabled={!book || page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-            上一页
+            {tr(language, "app.previous")}
           </button>
-          <span className="hint">{book ? pageLabel : "我的书桌"}</span>
+          <span className="hint">{book ? pageLabel : tr(language, "app.desk")}</span>
           <button
             className="tiny"
             disabled={!book || page >= pageCount}
             onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
           >
-            下一页
+            {tr(language, "app.next")}
           </button>
         </div>
         <div className="top-actions">
@@ -718,16 +785,16 @@ export default function App() {
             type="button"
             className={`agent-chip ${status.state}`}
             onClick={() => setSetupOpen(true)}
-            title={status.message || "打开环境检测"}
+            title={status.message || tr(language, "settings.title")}
           >
             <i className={`status-dot ${status.state}`} />
             <span>{chipLabel}</span>
           </button>
           <button className="ghost" onClick={() => setSetupOpen(true)}>
-            环境
+            {tr(language, "app.environment")}
           </button>
           <button className="solid" onClick={() => void openFromDialog()}>
-            导入 PDF
+            {tr(language, "app.importPdf")}
           </button>
         </div>
       </header>
@@ -743,7 +810,7 @@ export default function App() {
       )}
 
       {book ? (
-        <div className="shell">
+        <div className="shell" style={{ "--right-panel-width": `${settings.rightPanelWidth}px` } as CSSProperties}>
           <PdfPane
           sourcePath={book?.sourcePath ?? null}
           page={page}
@@ -773,6 +840,26 @@ export default function App() {
           onDelete={deleteHighlight}
           onSelect={setActiveId}
           onTextSelection={setReaderSelection}
+          language={language}
+          leftPanelWidth={settings.leftPanelWidth}
+          onResizeStart={startResize}
+          onResizeNudge={nudgeResize}
+          resizing={resizing === "left"}
+          />
+
+          <div
+            className={`pane-resizer pane-resizer-right ${resizing === "right" ? "active" : ""}`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={tr(language, "resize.right")}
+            tabIndex={0}
+            onPointerDown={(event) => startResize("right", event)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowLeft") nudgeResize("right", 16);
+              if (event.key === "ArrowRight") nudgeResize("right", -16);
+              if (event.key === "Home") setSettings((previous) => ({ ...previous, rightPanelWidth: defaultSettings.rightPanelWidth }));
+            }}
+            title={tr(language, "resize.right")}
           />
 
           <SidePanel
@@ -803,6 +890,7 @@ export default function App() {
             setActiveId(mark.id);
           }}
           onDeleteMark={deleteHighlight}
+          language={language}
           />
         </div>
       ) : (
@@ -818,6 +906,7 @@ export default function App() {
           onDeleteShelf={(id) => void deleteShelf(id)}
           onMoveBook={(bookId, shelfId) => void moveBook(bookId, shelfId)}
           onUpdateMetadata={(id, patch) => void updateBookMetadata(id, patch)}
+          language={language}
         />
       )}
 
@@ -829,6 +918,12 @@ export default function App() {
         onClose={() => setSetupOpen(false)}
         onSettings={setSettings}
         onConnect={(agentId) => void connect(agentId)}
+        language={language}
+        onResetLayout={() => setSettings((previous) => ({
+          ...previous,
+          leftPanelWidth: defaultSettings.leftPanelWidth,
+          rightPanelWidth: defaultSettings.rightPanelWidth,
+        }))}
       />
     </div>
   );

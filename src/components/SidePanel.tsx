@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { activeChatSession } from "../lib/chat-history";
 import { inferAskScope } from "../lib/context";
 import MarkdownContent from "./MarkdownContent";
-import type { AcpStatus, AgentInfo, AppSettings, AskScope, BookRecord, ChatHistory, Highlight, ReaderTurn, SelectionPayload } from "../lib/types";
+import { tr } from "../lib/i18n";
+import type { AcpStatus, AgentInfo, AppSettings, AskScope, BookRecord, ChatHistory, Highlight, Language, ReaderTurn, SelectionPayload } from "../lib/types";
 
 type Tab = "marks" | "tags" | "notes" | "ai" | "glossary";
 
@@ -31,15 +32,18 @@ type Props = {
   onDeleteMark: (id: string) => void;
   turn: ReaderTurn | null;
   aiTick: number;
+  language: Language;
 };
 
-const kindLabel: Record<string, string> = {
-  mark: "高亮",
-  note: "备注",
-  translate: "翻译",
-  explain: "解释",
-  tag: "标签",
-};
+function kindLabel(language: Language, kind: string) {
+  return {
+    mark: tr(language, "marks.tab"),
+    note: tr(language, "marks.notes"),
+    translate: tr(language, "ai.translate"),
+    explain: tr(language, "ai.explain"),
+    tag: tr(language, "marks.tags"),
+  }[kind] ?? tr(language, "marks.tab");
+}
 
 export default function SidePanel({
   book,
@@ -66,6 +70,7 @@ export default function SidePanel({
   onNewSession,
   onSelectSession,
   onJumpPage,
+  language,
 }: Props) {
   const [tab, setTab] = useState<Tab>("marks");
   const [question, setQuestion] = useState("");
@@ -84,27 +89,27 @@ export default function SidePanel({
     <aside className="side">
       <div className="tabs">
         <button className={tab === "marks" ? "active" : ""} onClick={() => setTab("marks")}>
-          标注
+          {tr(language, "marks.tab")}
         </button>
         <button className={tab === "tags" ? "active" : ""} onClick={() => setTab("tags")}>
-          标签
+          {tr(language, "marks.tags")}
           {tags.length > 0 && <span className="tab-count">{tags.length}</span>}
         </button>
         <button className={tab === "notes" ? "active" : ""} onClick={() => setTab("notes")}>
-          笔记
+          {tr(language, "marks.notes")}
         </button>
         <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>
           AI
         </button>
         <button className={tab === "glossary" ? "active" : ""} onClick={() => setTab("glossary")}>
-          术语表
+          {tr(language, "marks.glossary")}
         </button>
       </div>
 
       {tab === "marks" && (
         <>
-          <p className="hint">在 PDF 上划词后可以高亮、下划线、备注。点一条就能跳回那一页。</p>
-          {marks.length === 0 && <p className="empty">还没有标注。</p>}
+          <p className="hint">{tr(language, "marks.hint")}</p>
+          {marks.length === 0 && <p className="empty">{tr(language, "marks.empty")}</p>}
           <div className="mark-list">
             {marks.map((mark) => (
               <div key={mark.id} className={`mark-item ${mark.id === activeId ? "active" : ""}`}>
@@ -112,15 +117,15 @@ export default function SidePanel({
                   <i className="swatch" style={{ background: mark.color }} />
                   <span>
                     <small>
-                      p.{mark.page} · {kindLabel[mark.kind ?? "mark"] ?? "高亮"}
-                      {mark.style === "underline" ? " · 下划线" : mark.style === "strike" ? " · 删除线" : ""}
+                      p.{mark.page} · {kindLabel(language, mark.kind ?? "mark")}
+                      {mark.style === "underline" ? ` · ${language === "en-US" ? "underline" : "下划线"}` : mark.style === "strike" ? ` · ${language === "en-US" ? "strikethrough" : "删除线"}` : ""}
                     </small>
                     {mark.text}
                     {mark.note ? <em>{mark.note}</em> : null}
                   </span>
                 </button>
                 <button className="tiny" onClick={() => onDeleteMark(mark.id)}>
-                  删除
+                  {tr(language, "marks.delete")}
                 </button>
               </div>
             ))}
@@ -130,21 +135,21 @@ export default function SidePanel({
 
       {tab === "tags" && (
         <>
-          <p className="hint">标签是书里的路标。点击标签会直接回到对应页和原文位置。</p>
-          {tags.length === 0 && <p className="empty">划选一段文字，再点“标签”即可创建。</p>}
+          <p className="hint">{tr(language, "tags.hint")}</p>
+          {tags.length === 0 && <p className="empty">{tr(language, "tags.empty")}</p>}
           <div className="tag-list">
             {tags.map((tag) => (
               <div key={tag.id} className={`tag-item ${tag.id === activeId ? "active" : ""}`}>
                 <button className="tag-body" onClick={() => onJump(tag)}>
                   <span className="tag-ribbon" style={{ background: tag.color }} />
                   <span>
-                    <b>{tag.label || "未命名标签"}</b>
-                    <small>第 {tag.page} 页</small>
+                    <b>{tag.label || tr(language, "tags.unnamed")}</b>
+                    <small>{tr(language, "tags.page", { page: tag.page })}</small>
                     <em>{tag.text}</em>
                   </span>
                 </button>
-                <button className="tiny" onClick={() => onDeleteMark(tag.id)} aria-label={`删除标签 ${tag.label ?? ""}`}>
-                  删除
+                <button className="tiny" onClick={() => onDeleteMark(tag.id)} aria-label={language === "en-US" ? `Delete tag ${tag.label ?? ""}` : `删除标签 ${tag.label ?? ""}`}>
+                  {tr(language, "marks.delete")}
                 </button>
               </div>
             ))}
@@ -154,7 +159,7 @@ export default function SidePanel({
 
       {tab === "notes" && (
         <>
-          <p className="hint">这本书的本地 Markdown。高亮、翻译、解释都可以追加进来，原文 PDF 不会被改。</p>
+          <p className="hint">{tr(language, "notes.hint")}</p>
           <textarea
             className="md"
             value={book?.notes ?? ""}
@@ -166,7 +171,7 @@ export default function SidePanel({
 
       {tab === "glossary" && (
         <>
-          <p className="hint">确认过的译法放这里。下次翻译会先读这张表，避免一本里同一个词三种译法。</p>
+          <p className="hint">{tr(language, "glossary.hint")}</p>
           <textarea
             className="md"
             value={book?.glossary ?? ""}
@@ -180,7 +185,7 @@ export default function SidePanel({
         <div className="ai-panel">
           <div className="ai-settings">
             <p className="hint">
-              直接提问即可。Pageg 会根据你的问题和已选文字，自动判断使用选区、当前页或整本书。
+              {tr(language, "ai.hint")}
             </p>
             <select
               value={settings.agentId}
@@ -191,45 +196,45 @@ export default function SidePanel({
                   {agent.name}
                 </option>
               ))}
-              <option value="custom">自定义命令</option>
+              <option value="custom">{tr(language, "ai.customCommand")}</option>
             </select>
             {settings.agentId === "custom" && (
               <input
                 value={settings.customCommand}
-                placeholder="例如 npx -y @agentclientprotocol/codex-acp"
+                placeholder={tr(language, "ai.commandPlaceholder")}
                 onChange={(e) => onSettings({ ...settings, customCommand: e.target.value })}
               />
             )}
             <div className="top-actions">
               {status.state === "ready" || status.state === "prompting" ? (
                 <button className="ghost" onClick={onDisconnect}>
-                  断开
+                  {tr(language, "ai.disconnect")}
                 </button>
               ) : (
                 <button className="solid" onClick={onConnect}>
-                  连接 Agent
+                  {tr(language, "ai.connect")}
                 </button>
               )}
               {status.state === "prompting" && (
                 <button className="ghost" onClick={onCancel}>
-                  停止
+                  {tr(language, "ai.stop")}
                 </button>
               )}
             </div>
-            <p className="hint">{status.message ?? "尚未连接"}</p>
+            <p className="hint">{status.message ?? tr(language, "ai.notConnected")}</p>
             <div className="chat-session-bar">
               <label>
-                <span>会话历史</span>
+                <span>{tr(language, "ai.history")}</span>
                 <select value={chatHistory.activeSessionId} onChange={(e) => onSelectSession(e.target.value)}>
                   {chatHistory.sessions.map((session) => (
                     <option key={session.id} value={session.id}>
-                      {session.title} · {session.turns.length} 轮
+                      {session.title} · {session.turns.length} {language === "en-US" ? "turns" : "轮"}
                     </option>
                   ))}
                 </select>
               </label>
               <button type="button" className="tiny" onClick={onNewSession}>
-                ＋ 新会话
+                {tr(language, "ai.newSession")}
               </button>
             </div>
             {logs && <pre className="hint ai-logs">{logs.slice(-1200)}</pre>}
@@ -240,7 +245,7 @@ export default function SidePanel({
                   <article className="chat-turn" key={item.id}>
                     <div className="chat-question">
                       <button type="button" onClick={() => onJumpPage(item.page)}>
-                        第 {item.page} 页 · {item.scope === "book" ? "整本书" : item.scope === "selection" ? "选区" : item.intent === "translate" ? "翻译" : item.intent === "explain" ? "解释" : "当前页"}
+                        {language === "en-US" ? `Page ${item.page} · ` : `第 ${item.page} 页 · `}{item.scope === "book" ? tr(language, "ai.book") : item.scope === "selection" ? tr(language, "ai.selection") : item.intent === "translate" ? tr(language, "ai.translate") : item.intent === "explain" ? tr(language, "ai.explain") : tr(language, "ai.currentPage")}
                       </button>
                       <MarkdownContent text={item.question} />
                     </div>
@@ -248,7 +253,7 @@ export default function SidePanel({
                   </article>
                 ))
               ) : !turn ? (
-                <p className="chat-empty">这个会话还没有内容。提问、翻译或解释都会保存在这里。</p>
+                <p className="chat-empty">{tr(language, "ai.empty")}</p>
               ) : null}
               {turn && (
                 <article className="chat-turn pending">
@@ -271,21 +276,21 @@ export default function SidePanel({
             {selection?.text && (
               <div className="ask-context">
                 <div className="ask-context-head">
-                  <span>已保留第 {selection.page} 页选中文字</span>
-                  <button type="button" onClick={onClearSelection}>清除</button>
+                  <span>{tr(language, "ai.selected", { page: selection.page })}</span>
+                  <button type="button" onClick={onClearSelection}>{tr(language, "ai.clear")}</button>
                 </div>
                 <p>{selection.text}</p>
-                <small>文字已自动复制，也可以在输入框右键粘贴</small>
+                <small>{tr(language, "ai.copied")}</small>
               </div>
             )}
             <textarea
               rows={3}
               value={question}
-              placeholder="直接提问，例如：这段是什么意思？它和全文的核心观点有什么关系？"
+              placeholder={tr(language, "ai.placeholder")}
               onChange={(e) => setQuestion(e.target.value)}
             />
             <button className="solid" type="submit" disabled={status.state !== "ready"}>
-              提问
+              {tr(language, "ai.ask")}
             </button>
           </form>
         </div>

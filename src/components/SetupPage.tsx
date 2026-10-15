@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AcpStatus, AgentInfo, AppSettings, DiagnoseReport, Handedness } from "../lib/types";
+import { tr } from "../lib/i18n";
+import type { AcpStatus, AgentInfo, AppSettings, DiagnoseReport, Handedness, Language } from "../lib/types";
 
 type Props = {
   open: boolean;
@@ -9,6 +10,8 @@ type Props = {
   onClose: () => void;
   onSettings: (value: AppSettings) => void;
   onConnect: (agentId: string) => void;
+  language: Language;
+  onResetLayout: () => void;
 };
 
 export default function SetupPage({
@@ -19,11 +22,14 @@ export default function SetupPage({
   onClose,
   onSettings,
   onConnect,
+  language,
+  onResetLayout,
 }: Props) {
   const [report, setReport] = useState<DiagnoseReport | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [copied, setCopied] = useState("");
+  const text = (zh: string, en: string) => language === "en-US" ? en : zh;
 
   const refresh = async () => {
     setBusy("diagnose");
@@ -52,11 +58,11 @@ export default function SetupPage({
             ...step,
             ok: connected,
             detail: connected
-              ? `已连接 ${status.agentName ?? "Cursor"}`
+              ? text(`已连接 ${status.agentName ?? "Cursor"}`, `Connected to ${status.agentName ?? "Cursor"}`)
               : connecting
-                ? "正在拉起 ACP…"
+                ? text("正在拉起 ACP…", "Starting ACP…")
                 : status.state === "error"
-                  ? status.message || "连接失败"
+                  ? status.message || text("连接失败", "Connection failed")
                   : step.detail,
           }
         : step,
@@ -64,14 +70,14 @@ export default function SetupPage({
   }, [report, connected, connecting, status]);
 
   const headline = connected
-    ? `已连接 ${status.agentName ?? "智能体"}`
+    ? text(`已连接 ${status.agentName ?? "智能体"}`, `Connected to ${status.agentName ?? "agent"}`)
     : connecting
-      ? `正在连接 ${status.agentName ?? "智能体"}…`
+      ? text(`正在连接 ${status.agentName ?? "智能体"}…`, `Connecting to ${status.agentName ?? "agent"}…`)
       : cursor?.cliFound
-        ? "将复用 Cursor CLI 登录，不会再弹窗口"
+        ? text("将复用 Cursor CLI 登录，不会再弹窗口", "Reusing the Cursor CLI login without opening another sign-in window")
         : report?.localLogins?.some((item) => item.id === "codex" && item.found)
-          ? "Cursor CLI 还没有，将直接复用 Codex 登录"
-          : "还没连上智能体";
+          ? text("Cursor CLI 还没有，将直接复用 Codex 登录", "Cursor CLI is unavailable; Pageg will reuse the Codex login")
+          : text("还没连上智能体", "No agent is connected");
 
   const copy = async (text: string, label: string) => {
     try {
@@ -86,7 +92,7 @@ export default function SetupPage({
   const copyAll = () => {
     if (!report) return;
     const lines = [
-      `Pageg 诊断`,
+      text("Pageg 诊断", "Pageg diagnostics"),
       `ACP: ${status.state} ${status.agentName ?? ""} ${status.message ?? ""}`,
       report.verdict,
       report.fix,
@@ -98,7 +104,7 @@ export default function SetupPage({
       `install: ${report.installCommand}`,
       `PATH: ${report.pathPreview.join(" ; ")}`,
     ];
-    void copy(lines.join("\n"), "已复制诊断");
+    void copy(lines.join("\n"), text("已复制诊断", "Diagnostics copied"));
   };
 
   const run = async (id: string, fn: () => Promise<unknown>) => {
@@ -121,14 +127,14 @@ export default function SetupPage({
   const nextAction = !cursor?.cliFound && recommended === "cursor"
     ? {
         id: "install",
-        label: "安装 Cursor CLI",
+        label: text("安装 Cursor CLI", "Install Cursor CLI"),
         run: () => run("install", () => window.pageg.installCursorCli()),
       }
     : {
         id: "connect",
         label: connected
-          ? `重新连接 ${recommended === "codex" ? "Codex" : "Cursor"}`
-          : `连接 ${recommended === "codex" ? "Codex" : "Cursor"}`,
+          ? text(`重新连接 ${recommended === "codex" ? "Codex" : "Cursor"}`, `Reconnect ${recommended === "codex" ? "Codex" : "Cursor"}`)
+          : text(`连接 ${recommended === "codex" ? "Codex" : "Cursor"}`, `Connect ${recommended === "codex" ? "Codex" : "Cursor"}`),
         run: () => {
           onSettings({ ...settings, agentId: recommended });
           onConnect(recommended);
@@ -140,34 +146,49 @@ export default function SetupPage({
       <section className="setup-page" onClick={(e) => e.stopPropagation()}>
         <header>
           <div>
-            <h2>环境与智能体</h2>
+            <h2>{tr(language, "settings.title")}</h2>
             <p className="hint">
-              和 Codeg 一样：不另开登录。Cursor 读 ~/.cursor/cli-config.json，Codex 读 ~/.codex/auth.json。连接时用 ACP authenticate 吃掉已有登录。
+              {text("和 Codeg 一样：不另开登录。Cursor 读 ~/.cursor/cli-config.json，Codex 读 ~/.codex/auth.json。连接时用 ACP authenticate 吃掉已有登录。", "Like Codeg, Pageg reuses local logins. Cursor reads ~/.cursor/cli-config.json and Codex reads ~/.codex/auth.json; ACP authenticate reuses them when connecting.")}
             </p>
           </div>
           <button className="ghost" onClick={onClose}>
-            关闭
+            {tr(language, "settings.close")}
           </button>
         </header>
+
+        <div className="setup-row settings-preferences">
+          <div>
+            <h3>{tr(language, "settings.language")}</h3>
+            <p className="hint">{tr(language, "settings.languageHint")}</p>
+          </div>
+          <select
+            value={settings.language}
+            onChange={(event) => onSettings({ ...settings, language: event.target.value as Language })}
+            aria-label={tr(language, "settings.language")}
+          >
+            <option value="zh-CN">{tr(language, "settings.chinese")}</option>
+            <option value="en-US">{tr(language, "settings.english")}</option>
+          </select>
+        </div>
 
         <div className={`setup-verdict ${connected ? "ok" : "miss"}`}>
           <div className="setup-hero">
             <i className={`status-dot ${connected ? "ready" : status.state}`} />
             <div>
               <b>{headline}</b>
-              <p className="hint">{report?.verdict ?? "正在检测…"}</p>
+              <p className="hint">{report?.verdict ?? text("正在检测…", "Checking…")}</p>
               <p className="hint">{status.message || report?.fix}</p>
             </div>
           </div>
           <div className="top-actions">
             <button className="solid" onClick={() => void nextAction.run()} disabled={!!busy || connecting}>
-              {busy === nextAction.id || connecting ? "处理中" : nextAction.label}
+              {busy === nextAction.id || connecting ? text("处理中", "Working…") : nextAction.label}
             </button>
             <button className="tiny" onClick={() => void refresh()} disabled={busy === "diagnose"}>
-              {busy === "diagnose" ? "检测中" : "重新检测"}
+              {busy === "diagnose" ? text("检测中", "Checking…") : text("重新检测", "Check again")}
             </button>
             <button className="tiny" onClick={copyAll} disabled={!report}>
-              {copied || "复制全部诊断"}
+              {copied || text("复制全部诊断", "Copy diagnostics")}
             </button>
           </div>
         </div>
@@ -182,7 +203,7 @@ export default function SetupPage({
               </div>
               {step.id === "cli" && !step.ok ? (
                 <button className="tiny" onClick={() => void run("install", () => window.pageg.installCursorCli())} disabled={!!busy}>
-                  安装 CLI
+                  {text("安装 CLI", "Install CLI")}
                 </button>
               ) : null}
               {step.id === "connect" ? (
@@ -195,7 +216,7 @@ export default function SetupPage({
                   }}
                   disabled={connecting}
                 >
-                  {connected ? "重连" : "连接"}
+                  {connected ? text("重连", "Reconnect") : text("连接", "Connect")}
                 </button>
               ) : null}
             </div>
@@ -204,14 +225,14 @@ export default function SetupPage({
 
         {report?.installCommand ? (
           <div className="setup-row">
-            <h3>安装命令（可复制）</h3>
+            <h3>{text("安装命令（可复制）", "Install command (copyable)")}</h3>
             <p className="hint">
-              一键安装会打开 {report.terminalName}。若系统拦截，请复制这行命令后手动运行。
+              {text(`一键安装会打开 ${report.terminalName}。若系统拦截，请复制这行命令后手动运行。`, `One-click install opens ${report.terminalName}. If macOS blocks it, copy and run this command manually.`)}
             </p>
             <div className="setup-copy">
               <code>{report.installCommand}</code>
-              <button className="tiny" onClick={() => void copy(report.installCommand, "已复制命令")}>
-                复制
+              <button className="tiny" onClick={() => void copy(report.installCommand, text("已复制命令", "Command copied"))}>
+                {text("复制", "Copy")}
               </button>
             </div>
           </div>
@@ -219,16 +240,16 @@ export default function SetupPage({
 
         <div className="setup-grid">
           <div>
-            <h3>工具</h3>
+            <h3>{text("工具", "Tools")}</h3>
             {(report?.tools ?? []).map((tool) => (
               <div key={tool.id} className={`probe ${tool.found ? "ok" : "miss"}`}>
                 <b>{tool.name}</b>
-                <span>{tool.found ? tool.version || tool.path : tool.detail || "未找到"}</span>
+                <span>{tool.found ? tool.version || tool.path : tool.detail || text("未找到", "Not found")}</span>
               </div>
             ))}
           </div>
           <div>
-            <h3>其它智能体</h3>
+            <h3>{text("其它智能体", "Other agents")}</h3>
             {(report?.agents ?? agents.map((a) => ({ id: a.id, name: a.name, found: false, detail: a.description }))).map(
               (agent) => (
                 <div key={agent.id} className={`probe ${agent.found ? "ok" : "miss"}`}>
@@ -242,7 +263,7 @@ export default function SetupPage({
                       onClick={() => void run(agent.id, () => window.pageg.warmupAgent(agent.id))}
                       disabled={!!busy}
                     >
-                      {busy === agent.id ? "预热中" : "一键预热"}
+                      {busy === agent.id ? text("预热中", "Warming up…") : text("一键预热", "Warm up")}
                     </button>
                     <button
                       className="tiny"
@@ -251,7 +272,7 @@ export default function SetupPage({
                         onConnect(agent.id);
                       }}
                     >
-                      连接
+                      {text("连接", "Connect")}
                     </button>
                   </div>
                 </div>
@@ -261,30 +282,39 @@ export default function SetupPage({
         </div>
 
         <div className="setup-row">
-          <h3>用手习惯</h3>
-          <p className="hint">右利手：选区右侧弹出动作。左利手：从左侧弹出。</p>
+          <h3>{tr(language, "settings.handPreference")}</h3>
+          <p className="hint">{text("右利手：选区右侧弹出动作。左利手：从左侧弹出。", "Right-handed: actions open to the right of a selection. Left-handed: they open on the left.")}</p>
           <div className="top-actions">
             <button className={settings.handedness === "right" ? "solid" : "ghost"} onClick={() => onSettings({ ...settings, handedness: "right" as Handedness })}>
-              右利手
+              {tr(language, "settings.rightHand")}
             </button>
             <button className={settings.handedness === "left" ? "solid" : "ghost"} onClick={() => onSettings({ ...settings, handedness: "left" as Handedness })}>
-              左利手
+              {tr(language, "settings.leftHand")}
             </button>
           </div>
         </div>
 
         <div className="setup-row">
-          <h3>上下文怎么管</h3>
+          <h3>{tr(language, "settings.layout")}</h3>
+          <p className="hint">{tr(language, "settings.layoutHint")}</p>
+          <div className="layout-controls">
+            <label>{tr(language, "settings.leftPanel")}<input type="range" min="104" max="320" step="4" value={settings.leftPanelWidth} onChange={(event) => onSettings({ ...settings, leftPanelWidth: Number(event.target.value) })} /></label>
+            <label>{tr(language, "settings.rightPanel")}<input type="range" min="280" max="620" step="4" value={settings.rightPanelWidth} onChange={(event) => onSettings({ ...settings, rightPanelWidth: Number(event.target.value) })} /></label>
+          </div>
+          <button className="tiny" onClick={onResetLayout}>{tr(language, "settings.resetLayout")}</button>
+        </div>
+
+        <div className="setup-row">
+          <h3>{text("上下文怎么管", "How context works")}</h3>
           <p className="hint">
-            不把整本 PDF 丢给模型。每本书一个本地目录：`notes.md`、`glossary.md`、`session.md`、`highlights.json`。
-            每次只送选中原文 + 附近几句 + 命中的术语 + 最近几轮。智能体的工作区就是这本书的目录。
+            {text("不把整本 PDF 丢给模型。每本书一个本地目录：`notes.md`、`glossary.md`、`session.md`、`highlights.json`。每次只送选中原文 + 附近几句 + 命中的术语 + 最近几轮。智能体的工作区就是这本书的目录。", "Pageg does not send the entire PDF by default. Each book has a local vault with `notes.md`, `glossary.md`, `session.md`, and `highlights.json`; prompts include only relevant text, nearby context, terms, and recent turns.")}
           </p>
         </div>
 
         {settings.agentId === "custom" || settings.customCommand ? (
           <input
             value={settings.customCommand}
-            placeholder="自定义启动命令"
+            placeholder={text("自定义启动命令", "Custom launch command")}
             onChange={(e) => onSettings({ ...settings, customCommand: e.target.value, agentId: "custom" })}
           />
         ) : null}

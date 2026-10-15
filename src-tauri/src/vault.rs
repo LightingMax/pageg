@@ -103,6 +103,12 @@ pub struct AppSettings {
     pub custom_command: String,
     #[serde(default = "default_handedness")]
     pub handedness: String,
+    #[serde(default = "default_language")]
+    pub language: String,
+    #[serde(rename = "leftPanelWidth", default = "default_left_panel_width")]
+    pub left_panel_width: u32,
+    #[serde(rename = "rightPanelWidth", default = "default_right_panel_width")]
+    pub right_panel_width: u32,
     #[serde(rename = "openTabs", default)]
     pub open_tabs: Vec<String>,
     #[serde(rename = "currentShelf", default)]
@@ -113,12 +119,27 @@ fn default_handedness() -> String {
     "right".into()
 }
 
+fn default_language() -> String {
+    "zh-CN".into()
+}
+
+fn default_left_panel_width() -> u32 {
+    148
+}
+
+fn default_right_panel_width() -> u32 {
+    360
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             agent_id: "cursor".into(),
             custom_command: String::new(),
             handedness: default_handedness(),
+            language: default_language(),
+            left_panel_width: default_left_panel_width(),
+            right_panel_width: default_right_panel_width(),
             open_tabs: Vec::new(),
             current_shelf: String::new(),
         }
@@ -204,6 +225,15 @@ pub fn read_settings(app: &AppHandle) -> Result<AppSettings, String> {
     }
     if settings.handedness.is_empty() {
         settings.handedness = default_handedness();
+    }
+    if settings.language != "en-US" {
+        settings.language = default_language();
+    }
+    if settings.left_panel_width == 0 {
+        settings.left_panel_width = default_left_panel_width();
+    }
+    if settings.right_panel_width == 0 {
+        settings.right_panel_width = default_right_panel_width();
     }
     Ok(settings)
 }

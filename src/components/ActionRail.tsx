@@ -1,4 +1,5 @@
-import type { Handedness, MarkStyle, SelectionPayload } from "../lib/types";
+import { tr } from "../lib/i18n";
+import type { Handedness, Language, MarkStyle, SelectionPayload } from "../lib/types";
 
 const COLORS = ["#e8c56b", "#8fbf6a", "#e8a0b3", "#7eb6d9"];
 
@@ -31,6 +32,7 @@ type Props = {
   onTag: () => void;
   onTranslate: () => void;
   onExplain: () => void;
+  language: Language;
 };
 
 export default function ActionRail({
@@ -45,6 +47,7 @@ export default function ActionRail({
   onTag,
   onTranslate,
   onExplain,
+  language,
 }: Props) {
   const first = selection.rects[0];
   const last = selection.rects.at(-1) ?? first;
@@ -75,7 +78,7 @@ export default function ActionRail({
           <button
             key={color}
             className="dot"
-            title="高亮颜色"
+            title={tr(language, "mark.color")}
             style={{ background: color }}
             onClick={() => onMark("highlight", color)}
           />
@@ -89,7 +92,7 @@ export default function ActionRail({
           onClick={() => fire(action.run, action.style)}
         >
           <span className="action-icon">{action.icon}</span>
-          <span>{action.label}</span>
+          <span>{tr(language, `mark.${action.id}`)}</span>
           <kbd>{action.key}</kbd>
         </button>
       ))}

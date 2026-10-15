@@ -1,5 +1,6 @@
 export type MarkStyle = "highlight" | "underline" | "strike";
 export type Handedness = "right" | "left";
+export type Language = "zh-CN" | "en-US";
 
 export type Highlight = {
   id: string;
@@ -59,6 +60,9 @@ export type AppSettings = {
   agentId: string;
   customCommand: string;
   handedness: Handedness;
+  language: Language;
+  leftPanelWidth: number;
+  rightPanelWidth: number;
   openTabs: string[];
   currentShelf: string;
 };

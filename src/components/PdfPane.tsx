@@ -1,7 +1,8 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import type { BookMeta, Catalog, Handedness, Highlight, MarkOptions, MarkStyle, SelectionPayload } from "../lib/types";
+import type { BookMeta, Catalog, Handedness, Highlight, Language, MarkOptions, MarkStyle, SelectionPayload } from "../lib/types";
+import { tr } from "../lib/i18n";
 import { startPaint } from "../lib/pdf-render";
 import ActionRail, { COLORS } from "./ActionRail";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -44,6 +45,11 @@ type Props = {
   onDelete: (id: string) => void;
   onSelect: (id: string | null) => void;
   onTextSelection: (selection: SelectionPayload) => void;
+  language: Language;
+  leftPanelWidth: number;
+  onResizeStart: (side: "left", event: ReactPointerEvent<HTMLElement>) => void;
+  onResizeNudge: (side: "left", delta: number) => void;
+  resizing: boolean;
 };
 
 function hitTest(highlights: Highlight[], x: number, y: number) {
@@ -132,6 +138,7 @@ const PageSheet = memo(function PageSheet({
   highlights,
   activeId,
   onSelect,
+  language,
 }: {
   pdf: PdfDoc;
   pageNumber: number;
@@ -140,6 +147,7 @@ const PageSheet = memo(function PageSheet({
   highlights: Highlight[];
   activeId: string | null;
   onSelect: (id: string) => void;
+  language: Language;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -244,11 +252,11 @@ const PageSheet = memo(function PageSheet({
               ["--tag-color" as string]: tag.color || COLORS[2],
               transform: `translateY(${index * 3}px)`,
             }}
-            title={`跳到标签：${tag.label || tag.text}`}
+            title={language === "en-US" ? `Jump to tag: ${tag.label || tag.text}` : `跳到标签：${tag.label || tag.text}`}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onSelect(tag.id)}
           >
-            {tag.label || "标签"}
+            {tag.label || tr(language, "mark.tag")}
           </button>
         ))}
     </div>
@@ -281,6 +289,11 @@ export default function PdfPane({
   onDelete,
   onSelect,
   onTextSelection,
+  language,
+  leftPanelWidth,
+  onResizeStart,
+  onResizeNudge,
+  resizing,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
@@ -726,15 +739,15 @@ export default function PdfPane({
       : 24;
 
   return (
-    <div className="reader-wrap">
+    <div className="reader-wrap" style={{ "--left-panel-width": `${leftPanelWidth}px` } as CSSProperties}>
       {fileInput}
       <aside className="nav-left">
-        <h2>书架</h2>
+        <h2>{tr(language, "desk.shelf")}</h2>
         <select
           value={currentShelf}
           onChange={(e) => onSelectShelf(e.target.value)}
         >
-          <option value="">全部书</option>
+          <option value="">{tr(language, "desk.allBooks")}</option>
           {catalog.shelves.map((shelf) => (
             <option key={shelf.id} value={shelf.id}>
               {shelf.name}
@@ -752,7 +765,7 @@ export default function PdfPane({
         >
           <input
             value={shelfName}
-            placeholder="新建书架"
+            placeholder={tr(language, "desk.newShelf")}
             onChange={(e) => setShelfName(e.target.value)}
           />
         </form>
@@ -763,7 +776,7 @@ export default function PdfPane({
               if (e.target.value) onAssignBook(e.target.value, true);
             }}
           >
-            <option value="">放到书架…</option>
+            <option value="">{tr(language, "desk.putOnShelf")}</option>
             {catalog.shelves.map((shelf) => (
               <option key={shelf.id} value={shelf.id}>
                 {shelf.name}
@@ -772,7 +785,7 @@ export default function PdfPane({
           </select>
         )}
         <div className="library-mini">
-          {library.length === 0 && <p className="empty">还没有书。</p>}
+          {library.length === 0 && <p className="empty">{tr(language, "desk.noBooks")}</p>}
           {(currentShelf
             ? library.filter((item) => catalog.shelves.find((s) => s.id === currentShelf)?.bookIds.includes(item.id))
             : library
@@ -788,7 +801,7 @@ export default function PdfPane({
         </div>
         {pdf && (
           <>
-            <h2>页面</h2>
+            <h2>{tr(language, "desk.pages")}</h2>
             <div ref={thumbsRef} className="thumbs">
               {metrics.map((metric, i) => (
                 <Thumbnail
@@ -808,47 +821,62 @@ export default function PdfPane({
         )}
       </aside>
 
+      <div
+        className={`pane-resizer pane-resizer-left ${resizing ? "active" : ""}`}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={tr(language, "resize.left")}
+        tabIndex={0}
+        onPointerDown={(event) => onResizeStart("left", event)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowLeft") onResizeNudge("left", -16);
+          if (event.key === "ArrowRight") onResizeNudge("left", 16);
+          if (event.key === "Home") onResizeNudge("left", 148 - leftPanelWidth);
+        }}
+        title={tr(language, "resize.left")}
+      />
+
       <div ref={pagesRef} className="reader">
         {pdf && (
-          <div className="reader-tools" aria-label="PDF 阅读工具">
+          <div className="reader-tools" aria-label={tr(language, "desk.readingTools")}>
             <button className="tiny" onClick={() => setZoom((value) => Math.max(ZOOM_MIN, value - ZOOM_STEP))}>
               −
             </button>
-            <button className="zoom-value" onClick={() => setZoom(1)} title="适合宽度">
+            <button className="zoom-value" onClick={() => setZoom(1)} title={tr(language, "desk.fitWidth")}>
               {Math.round(zoom * 100)}%
             </button>
             <button className="tiny" onClick={() => setZoom((value) => Math.min(ZOOM_MAX, value + ZOOM_STEP))}>
               +
             </button>
-            <span>拖选文字后可高亮、划线、备注或添加标签；按住 Ctrl/⌘ 滚轮可细调缩放</span>
+            <span>{tr(language, "desk.zoomHint")}</span>
           </div>
         )}
         {!sourcePath && (
           <div className="dropzone">
-            <h2>把 PDF 拖进来</h2>
-            <p className="hint">导入后划词，点翻译或解释。AI 只动你点的那一句，PDF 本身不会被改。</p>
+            <h2>{tr(language, "desk.dropPdf")}</h2>
+            <p className="hint">{tr(language, "desk.openPdfHint")}</p>
             <div className="dropzone-actions">
               <button className="solid" onClick={onImport}>
-                选择 PDF
+                {tr(language, "desk.choosePdf")}
               </button>
               <button className="ghost" onClick={pickFile}>
-                上传文件
+                {tr(language, "desk.uploadFile")}
               </button>
             </div>
           </div>
         )}
         {loadError && (
           <div className="dropzone">
-            <h2>打不开这份 PDF</h2>
+            <h2>{tr(language, "desk.cannotOpen")}</h2>
             <p className="hint">{loadError}</p>
             <div className="dropzone-actions">
               <button className="solid" onClick={onImport}>
-                重新导入
+                {tr(language, "desk.reimport")}
               </button>
             </div>
           </div>
         )}
-        {loading && <p className="hint reader-status">正在打开 PDF…</p>}
+        {loading && <p className="hint reader-status">{tr(language, "desk.loadingPdf")}</p>}
         {pdf &&
           metrics.map((metric, i) => (
             <PageSheet
@@ -860,6 +888,7 @@ export default function PdfPane({
               highlights={highlights}
               activeId={activeId}
               onSelect={(id) => onSelect(id)}
+              language={language}
             />
           ))}
         {selection && !noteOpen && !tagOpen && overlayStage && (
@@ -881,6 +910,7 @@ export default function PdfPane({
               onExplain(selection);
               setSelection(null);
             }}
+            language={language}
           />
         )}
         {tagOpen && (selection || active?.kind === "tag") && overlayStage && (
@@ -893,11 +923,11 @@ export default function PdfPane({
             }}
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <b>{active?.kind === "tag" ? "编辑标签" : "给这里加标签"}</b>
+            <b>{active?.kind === "tag" ? tr(language, "mark.editTag") : tr(language, "mark.addTag")}</b>
             <p className="quote">{(active?.text ?? selection?.text ?? "").slice(0, 120)}</p>
             <input
               value={tagDraft}
-              placeholder="例如：核心结论、待复习、案例"
+              placeholder={tr(language, "mark.tagPlaceholder")}
               maxLength={24}
               onChange={(event) => setTagDraft(event.target.value)}
               onKeyDown={(event) => {
@@ -908,15 +938,15 @@ export default function PdfPane({
             />
             <div className="note-actions">
               <button className="solid" onClick={saveTag} disabled={!tagDraft.trim()}>
-                保存标签
+                {tr(language, "mark.saveTag")}
               </button>
               {active?.kind === "tag" && (
                 <button className="ghost" onClick={() => onDelete(active.id)}>
-                  删除
+                  {tr(language, "marks.delete")}
                 </button>
               )}
               <button className="ghost" onClick={() => setTagOpen(false)}>
-                取消
+                {tr(language, "mark.cancel")}
               </button>
             </div>
           </div>
@@ -934,21 +964,21 @@ export default function PdfPane({
             <p className="quote">{(active?.text ?? selection?.text ?? "").slice(0, 180)}</p>
             <textarea
               value={noteDraft}
-              placeholder="写下这句的备注，只存在本地"
+              placeholder={tr(language, "mark.notePlaceholder")}
               onChange={(e) => setNoteDraft(e.target.value)}
               autoFocus
             />
             <div className="note-actions">
               <button className="solid" onClick={saveNote}>
-                保存备注
+                {tr(language, "mark.saveNote")}
               </button>
               {active && (
                 <button className="ghost" onClick={() => onDelete(active.id)}>
-                  删除标注
+                  {tr(language, "mark.deleteMark")}
                 </button>
               )}
               <button className="ghost" onClick={() => setNoteOpen(false)}>
-                取消
+                {tr(language, "mark.cancel")}
               </button>
             </div>
             {active && (
