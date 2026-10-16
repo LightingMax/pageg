@@ -798,13 +798,15 @@ export default function App() {
     }
   };
 
+  const activeModelName = status.models?.find((model) => model.id === status.modelId)?.name;
+  const activeAgentLabel = activeModelName ?? status.agentName ?? (language === "en-US" ? "agent" : "智能体");
   const chipLabel =
     status.state === "ready"
-      ? tr(language, "app.connected", { name: status.agentName ?? (language === "en-US" ? "agent" : "智能体") })
+      ? tr(language, "app.connected", { name: activeAgentLabel })
       : status.state === "connecting"
-        ? tr(language, "app.connecting", { name: status.agentName ?? (language === "en-US" ? "agent" : "智能体") })
+        ? tr(language, "app.connecting", { name: activeAgentLabel })
         : status.state === "prompting"
-          ? tr(language, "app.working", { name: status.agentName ?? (language === "en-US" ? "agent" : "智能体") })
+          ? tr(language, "app.working", { name: activeAgentLabel })
           : status.state === "error"
             ? tr(language, "app.connectionFailed")
             : tr(language, "app.unconnected");
