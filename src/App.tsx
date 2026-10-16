@@ -792,8 +792,7 @@ export default function App() {
   const selectModel = async (modelId: string) => {
     setSettings((previous) => ({ ...previous, modelId }));
     try {
-      setStatus((previous) => ({ ...previous, modelId, message: `已切换到 ${modelId}` }));
-      await window.pageg.acpSetModel(modelId);
+      setStatus((await window.pageg.acpSetModel(modelId)) as AcpStatus);
     } catch (err) {
       setError(asError(err));
     }
