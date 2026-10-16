@@ -35,6 +35,7 @@ describe("pickGlossary", () => {
 describe("inferAskScope", () => {
   it("uses the selection for focused questions", () => {
     expect(inferAskScope("这段话是什么意思？", true)).toBe("selection");
+    expect(inferAskScope("本页的创新点是什么？", true)).toBe("selection");
     expect(inferAskScope("这段和全文有什么关系？", true)).toBe("book");
   });
 
@@ -92,6 +93,24 @@ describe("assemblePrompt", () => {
     expect(prompt).toContain("Photosynthesis converts");
     expect(prompt).toContain("已经从 PDF 中提取");
     expect(prompt).toContain("不要声称无法读取正文");
+  });
+
+  it("makes the selected passage the center of a focused question", () => {
+    const prompt = assemblePrompt({
+      intent: "ask",
+      book,
+      page: 3,
+      selected: "Photosynthesis converts light energy into chemical energy.",
+      context: "In plants, photosynthesis converts light energy into chemical energy stored in glucose.",
+      extra: "本页的创新点是什么？",
+      scope: "selection",
+      sourceText: "In plants, photosynthesis converts light energy into chemical energy stored in glucose.",
+    });
+    expect(prompt).toContain("阅读范围：当前选区");
+    expect(prompt).toContain("用户选中的原文：");
+    expect(prompt).toContain("当前选区是用户问题的核心");
+    expect(prompt).toContain("本页的创新点是什么？");
+    expect(prompt).toContain("选区附近上下文");
   });
 
   it("includes the whole-book digest and relevant source pages", () => {

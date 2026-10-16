@@ -14,8 +14,10 @@ export function wantsPaperDownload(question: string) {
 export function inferAskScope(question: string, hasSelection: boolean): AskScope {
   const value = question.trim();
   if (BOOK_SCOPE_HINTS.test(value)) return "book";
-  if (PAGE_SCOPE_HINTS.test(value)) return "page";
+  // A live selection is the user's strongest grounding signal. Keep the
+  // question anchored to it unless the user explicitly asks for the book.
   if (hasSelection) return "selection";
+  if (PAGE_SCOPE_HINTS.test(value)) return "page";
   return BROAD_QUESTION_HINTS.test(value) ? "book" : "page";
 }
 
@@ -77,6 +79,10 @@ export function assemblePrompt(opts: {
   const source = opts.sourceText?.trim() ?? "";
   const digest = opts.bookDigest?.trim() ?? "";
   const relevant = opts.relevantText?.trim() ?? "";
+  const selectionGuidance =
+    opts.intent === "ask" && opts.scope === "selection"
+      ? "当前选区是用户问题的核心。请优先围绕选中的原文回答；附近上下文只用于消歧。除非用户明确要求，不要扩大成整页或整本书总结。"
+      : "";
 
   return [
     downloadRequest
@@ -84,8 +90,9 @@ export function assemblePrompt(opts: {
       : "你现在是阅读助手，不是编程助手。禁止调用工具、读仓库、改文件、列 TODO。",
     `书名：${opts.book.title}　页码：${opts.page}`,
     opts.intent === "ask" ? `阅读范围：${scopeLabel}` : "",
-    quote ? `原文：\n${quote}` : "",
-    nearby && nearby !== quote ? `附近上下文（只用来消歧，不要翻译整段）：\n${nearby}` : "",
+    selectionGuidance,
+    quote ? `${opts.scope === "selection" ? "用户选中的原文" : "原文"}：\n${quote}` : "",
+    nearby && nearby !== quote ? `选区附近上下文（只用来消歧，不要翻译整段）：\n${nearby}` : "",
     source ? `${opts.scope === "page" ? `当前页正文（第 ${opts.page} 页）` : "PDF正文"}：\n${source}` : "",
     digest ? `全书压缩上下文（覆盖 ${opts.book.pageCount ?? "全部"} 页）：\n${digest}` : "",
     relevant ? `与问题相关的原文页：\n${relevant}` : "",

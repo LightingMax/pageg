@@ -666,11 +666,15 @@ export default function App() {
         book.id,
         sessionBlock(intent, targetPage, selected || extra || "", result.text),
       );
+      const historyQuestion =
+        intent === "ask" && selected && extra
+          ? `${extra}\n\n> ${selected}`
+          : selected || extra || (intent === "translate" ? tr(language, "app.translateSelection") : tr(language, "app.explainSelection"));
       const nextHistory = appendChatTurn(requestHistory, {
         intent,
         scope: intent === "ask" ? scope : undefined,
         page: targetPage,
-        question: selected || extra || (intent === "translate" ? tr(language, "app.translateSelection") : tr(language, "app.explainSelection")),
+        question: historyQuestion,
         answer: result.text,
       });
       await window.pageg.saveChatHistory(requestBook.id, nextHistory);
