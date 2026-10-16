@@ -56,6 +56,12 @@ export type AgentInfo = {
   command?: string;
 };
 
+export type AgentModel = {
+  id: string;
+  name: string;
+  description?: string;
+};
+
 export type AppSettings = {
   agentId: string;
   customCommand: string;
@@ -65,6 +71,7 @@ export type AppSettings = {
   rightPanelWidth: number;
   openTabs: string[];
   currentShelf: string;
+  modelId: string;
 };
 
 export type ReaderTurn = {
@@ -128,6 +135,8 @@ export type AcpStatus = {
   agentName?: string;
   sessionId?: string;
   message?: string;
+  modelId?: string;
+  models?: AgentModel[];
 };
 
 export type AcpEvent = {

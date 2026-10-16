@@ -113,6 +113,8 @@ pub struct AppSettings {
     pub open_tabs: Vec<String>,
     #[serde(rename = "currentShelf", default)]
     pub current_shelf: String,
+    #[serde(rename = "modelId", default)]
+    pub model_id: String,
 }
 
 fn default_handedness() -> String {
@@ -142,6 +144,7 @@ impl Default for AppSettings {
             right_panel_width: default_right_panel_width(),
             open_tabs: Vec::new(),
             current_shelf: String::new(),
+            model_id: String::new(),
         }
     }
 }

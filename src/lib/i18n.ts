@@ -131,7 +131,6 @@ const messages: Record<Language, Record<string, MessageValue>> = {
     "tags.page": "第 {page} 页",
     "notes.hint": "这本书的本地 Markdown。高亮、翻译、解释都可以追加进来，原文 PDF 不会被改。",
     "glossary.hint": "确认过的译法放这里。下次翻译会先读这张表，避免一本里同一个词三种译法。",
-    "ai.hint": "直接提问即可。Pageg 会根据你的问题和已选文字，自动判断使用选区、当前页或整本书。",
     "ai.customCommand": "自定义命令",
     "ai.commandPlaceholder": "例如 npx -y @agentclientprotocol/codex-acp",
     "ai.disconnect": "断开",
@@ -155,7 +154,6 @@ const messages: Record<Language, Record<string, MessageValue>> = {
     "ai.currentPage": "当前页",
     "ai.translate": "翻译",
     "ai.explain": "解释",
-    "ai.paperDownloadHint": "如果找到可靠的公开论文，Pageg 会下载并加载到书桌。",
   },
   "en-US": {
     "app.subtitle": "Local reading · On-demand intelligence",
@@ -285,7 +283,6 @@ const messages: Record<Language, Record<string, MessageValue>> = {
     "tags.page": "Page {page}",
     "notes.hint": "Local Markdown notes for this book. Highlights, translations, and explanations can be added here; the PDF stays unchanged.",
     "glossary.hint": "Keep confirmed translations here. Future translations read this list so terminology stays consistent.",
-    "ai.hint": "Ask directly. Pageg uses your question and selected text to choose the selection, current page, or full book automatically.",
     "ai.customCommand": "Custom command",
     "ai.commandPlaceholder": "e.g. npx -y @agentclientprotocol/codex-acp",
     "ai.disconnect": "Disconnect",
@@ -309,7 +306,6 @@ const messages: Record<Language, Record<string, MessageValue>> = {
     "ai.currentPage": "Current page",
     "ai.translate": "Translate",
     "ai.explain": "Explain",
-    "ai.paperDownloadHint": "When a reliable public paper is found, Pageg downloads and loads it onto your desk.",
   },
 };
 

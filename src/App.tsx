@@ -51,6 +51,7 @@ const defaultSettings: AppSettings = {
   rightPanelWidth: 360,
   openTabs: [],
   currentShelf: "",
+  modelId: "",
 };
 
 const MIN_LEFT_PANEL = 104;
@@ -86,6 +87,7 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
       : defaultSettings.rightPanelWidth,
     openTabs: value?.openTabs ?? [],
     currentShelf: value?.currentShelf ?? "",
+    modelId: typeof value?.modelId === "string" ? value.modelId.trim() : defaultSettings.modelId,
   };
 }
 
@@ -284,7 +286,14 @@ export default function App() {
     });
     const stop = window.pageg.onAcpEvent((payload) => {
       const event = payload as AcpEvent;
-      if (event.kind === "status" && event.status) setStatus(event.status);
+      if (event.kind === "status" && event.status) {
+        setStatus(event.status);
+        if (event.status.modelId) {
+          setSettings((previous) => previous.modelId === event.status?.modelId
+            ? previous
+            : { ...previous, modelId: event.status?.modelId ?? "" });
+        }
+      }
       if (event.kind === "log" && event.text) setLogs((prev) => prev + event.text);
       const belongsToOpenBook = requestBookId.current === currentBookId.current;
       if (event.kind === "session_update" && event.text && belongsToOpenBook) setStream((prev) => prev + event.text);
@@ -765,14 +774,27 @@ export default function App() {
     setStream("");
     setError(null);
     try {
-      await window.pageg.acpConnect({
+      const connected = (await window.pageg.acpConnect({
         agentId,
         cwd,
         customCommand: next.customCommand,
-      });
+      })) as AcpStatus;
+      if (next.modelId && connected.models?.some((model) => model.id === next.modelId) && connected.modelId !== next.modelId) {
+        await window.pageg.acpSetModel(next.modelId);
+      }
       setSetupOpen(false);
     } catch (err) {
       setSetupOpen(true);
+      setError(asError(err));
+    }
+  };
+
+  const selectModel = async (modelId: string) => {
+    setSettings((previous) => ({ ...previous, modelId }));
+    try {
+      setStatus((previous) => ({ ...previous, modelId, message: `已切换到 ${modelId}` }));
+      await window.pageg.acpSetModel(modelId);
+    } catch (err) {
       setError(asError(err));
     }
   };
@@ -915,7 +937,6 @@ export default function App() {
 
           <SidePanel
           book={book}
-          agents={agents}
           settings={settings}
           status={status}
           stream={stream}
@@ -926,8 +947,8 @@ export default function App() {
           aiTick={aiTick}
           onNotes={(notes) => setBook((prev) => (prev ? { ...prev, notes } : prev))}
           onGlossary={(glossary) => setBook((prev) => (prev ? { ...prev, glossary } : prev))}
-          onSettings={setSettings}
           onConnect={() => void connect()}
+          onModel={(modelId) => void selectModel(modelId)}
           onDisconnect={() => void window.pageg.acpDisconnect()}
           onAsk={({ question, scope }) => void runIntent("ask", question, null, scope)}
           onNewSession={startChatSession}

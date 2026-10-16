@@ -466,6 +466,15 @@ async fn acp_cancel(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn acp_set_model(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    model_id: String,
+) -> Result<acp::AcpStatus, String> {
+    state.acp.set_model(&app, &model_id).await
+}
+
+#[tauri::command]
 async fn acp_prompt(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -539,6 +548,7 @@ pub fn run() {
             acp_connect,
             acp_disconnect,
             acp_cancel,
+            acp_set_model,
             acp_prompt,
             acp_prompt_isolated
         ])

@@ -13,6 +13,14 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{oneshot, Mutex};
 
 #[derive(Clone, Debug, Serialize)]
+pub struct AcpModel {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 pub struct AcpStatus {
     pub state: String,
     #[serde(rename = "agentId", skip_serializing_if = "Option::is_none")]
@@ -23,6 +31,24 @@ pub struct AcpStatus {
     pub session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(rename = "modelId", skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub models: Vec<AcpModel>,
+}
+
+impl Default for AcpStatus {
+    fn default() -> Self {
+        Self {
+            state: "disconnected".into(),
+            agent_id: None,
+            agent_name: None,
+            session_id: None,
+            message: None,
+            model_id: None,
+            models: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -49,6 +75,8 @@ pub struct AcpSession {
     session_id: String,
     agent_id: String,
     agent_name: String,
+    model_id: Option<String>,
+    models: Vec<AcpModel>,
     cwd: PathBuf,
     _vault_root: PathBuf,
 }
@@ -62,13 +90,7 @@ impl AcpHost {
     pub fn new() -> Self {
         Self {
             session: Mutex::new(None),
-            status: Mutex::new(AcpStatus {
-                state: "disconnected".into(),
-                agent_id: None,
-                agent_name: None,
-                session_id: None,
-                message: None,
-            }),
+            status: Mutex::new(AcpStatus::default()),
         }
     }
 
@@ -101,6 +123,7 @@ impl AcpHost {
                 agent_name: None,
                 session_id: None,
                 message: None,
+                ..AcpStatus::default()
             },
         )
         .await;
@@ -125,6 +148,7 @@ impl AcpHost {
                 agent_name: Some(agent.name.clone()),
                 session_id: None,
                 message: Some("正在启动 ACP agent… 首次运行可能需要下载适配器".into()),
+                ..AcpStatus::default()
             },
         )
         .await;
@@ -148,6 +172,7 @@ impl AcpHost {
                     agent_name: Some(agent.name),
                     session_id: None,
                     message: Some(err.clone()),
+                    ..AcpStatus::default()
                 },
             )
             .await;
@@ -161,6 +186,8 @@ impl AcpHost {
                     agent_name: Some(session.agent_name.clone()),
                     session_id: Some(session.session_id.clone()),
                     message: Some(format!("已连接 {}", session.agent_name)),
+                    model_id: session.model_id.clone(),
+                    models: session.models.clone(),
                 };
                 *self.session.lock().await = Some(session);
                 self.set_status(app, status.clone()).await;
@@ -175,6 +202,7 @@ impl AcpHost {
                         agent_name: Some(agent.name),
                         session_id: None,
                         message: Some(err.clone()),
+                        ..AcpStatus::default()
                     },
                 )
                 .await;
@@ -204,6 +232,8 @@ impl AcpHost {
                 agent_name: current.agent_name.clone(),
                 session_id: current.session_id,
                 message: Some("Agent 正在阅读这段文字…".into()),
+                model_id: current.model_id.clone(),
+                models: current.models.clone(),
             },
         )
         .await;
@@ -229,6 +259,8 @@ impl AcpHost {
                         agent_name: current.agent_name,
                         session_id: current.session_id,
                         message: Some("本轮完成。没有你的下一次请求，AI 不会再动。".into()),
+                        model_id: current.model_id,
+                        models: current.models,
                     },
                 )
                 .await;
@@ -243,6 +275,8 @@ impl AcpHost {
                         agent_name: current.agent_name,
                         session_id: current.session_id,
                         message: Some(err.clone()),
+                        model_id: current.model_id,
+                        models: current.models,
                     },
                 )
                 .await;
@@ -282,11 +316,14 @@ impl AcpHost {
             .and_then(|value| value.as_str())
             .ok_or("session/new did not return sessionId")?
             .to_string();
+        let (model_id, models) = session_model_info(&created);
         prefer_ask_mode(&io, &session_id, &created).await;
         {
             let mut guard = self.session.lock().await;
             let session = guard.as_mut().ok_or("ACP session is not ready")?;
             session.session_id = session_id.clone();
+            session.model_id = model_id.clone();
+            session.models = models.clone();
         }
         let current = self.status().await;
         self.set_status(
@@ -297,10 +334,53 @@ impl AcpHost {
                 agent_name: current.agent_name,
                 session_id: Some(session_id),
                 message: Some("已建立独立阅读上下文".into()),
+                model_id,
+                models,
             },
         )
         .await;
         Ok(())
+    }
+
+    pub async fn set_model(&self, app: &AppHandle, model_id: &str) -> Result<AcpStatus, String> {
+        let (io, session_id) = {
+            let guard = self.session.lock().await;
+            let session = guard.as_ref().ok_or("ACP session is not ready")?;
+            (session.io.clone(), session.session_id.clone())
+        };
+        let model_id = model_id.trim();
+        if model_id.is_empty() {
+            return Err("模型不能为空".into());
+        }
+        let response = io
+            .request(
+                "session/set_config_option",
+                json!({
+                    "sessionId": session_id,
+                    "configId": "model",
+                    "value": model_id,
+                }),
+            )
+            .await?;
+        let (_, models) = session_model_info(&response);
+        let mut guard = self.session.lock().await;
+        let session = guard.as_mut().ok_or("ACP session is not ready")?;
+        session.model_id = Some(model_id.to_string());
+        if !models.is_empty() {
+            session.models = models;
+        }
+        let status = AcpStatus {
+            state: "ready".into(),
+            agent_id: Some(session.agent_id.clone()),
+            agent_name: Some(session.agent_name.clone()),
+            session_id: Some(session.session_id.clone()),
+            message: Some(format!("已切换到 {}", model_id)),
+            model_id: session.model_id.clone(),
+            models: session.models.clone(),
+        };
+        drop(guard);
+        self.set_status(app, status.clone()).await;
+        Ok(status)
     }
 
     pub async fn cancel(&self) -> Result<(), String> {
@@ -405,7 +485,7 @@ async fn handshake(
             "clientInfo": {
                 "name": "pageg",
                 "title": "Pageg",
-                "version": "0.1.0"
+                "version": env!("CARGO_PKG_VERSION")
             }
         }),
     )
@@ -427,6 +507,7 @@ async fn handshake(
         .and_then(|v| v.as_str())
         .ok_or("session/new did not return sessionId")?
         .to_string();
+    let (model_id, models) = session_model_info(&created);
 
     prefer_ask_mode(&io, &session_id, &created).await;
 
@@ -436,9 +517,94 @@ async fn handshake(
         session_id,
         agent_id: agent.id,
         agent_name: agent.name,
+        model_id,
+        models,
         cwd,
         _vault_root: vault_root,
     })
+}
+
+fn session_model_info(value: &Value) -> (Option<String>, Vec<AcpModel>) {
+    let model_state = value.get("models");
+    let current = model_state
+        .and_then(|state| state.get("currentModelId"))
+        .and_then(Value::as_str)
+        .map(base_model_id)
+        .or_else(|| {
+            value
+                .get("configOptions")
+                .and_then(Value::as_array)
+                .and_then(|options| {
+                    options
+                        .iter()
+                        .find(|option| option.get("id").and_then(Value::as_str) == Some("model"))
+                })
+                .and_then(|option| option.get("currentValue"))
+                .and_then(Value::as_str)
+                .map(base_model_id)
+        });
+
+    let available = model_state
+        .and_then(|state| state.get("availableModels"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let config_models = value
+        .get("configOptions")
+        .and_then(Value::as_array)
+        .and_then(|options| {
+            options
+                .iter()
+                .find(|option| option.get("id").and_then(Value::as_str) == Some("model"))
+        })
+        .and_then(|option| option.get("options"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let source = if available.is_empty() {
+        config_models
+    } else {
+        available
+    };
+    let mut seen = std::collections::HashSet::new();
+    let models = source
+        .into_iter()
+        .filter_map(|model| {
+            let id = model
+                .get("id")
+                .or_else(|| model.get("value"))?
+                .as_str()?
+                .trim();
+            if id.is_empty() || !seen.insert(id.to_string()) {
+                return None;
+            }
+            let name = model
+                .get("displayName")
+                .or_else(|| model.get("name"))
+                .and_then(Value::as_str)
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or(id)
+                .to_string();
+            let description = model
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            Some(AcpModel {
+                id: id.to_string(),
+                name,
+                description,
+            })
+        })
+        .collect();
+    (current, models)
+}
+
+fn base_model_id(id: &str) -> String {
+    id.split_once('[')
+        .map(|(model, _)| model)
+        .unwrap_or(id)
+        .trim()
+        .to_string()
 }
 
 async fn maybe_authenticate(io: &RpcIo, agent: &AgentDefinition) -> Result<(), String> {
@@ -772,5 +938,37 @@ mod tests {
             ]
         });
         assert_eq!(chunk_text(&update).as_deref(), Some("译：腺苷三磷酸"));
+    }
+
+    #[test]
+    fn session_models_use_codex_model_state() {
+        let response = json!({
+            "sessionId": "session-1",
+            "models": {
+                "currentModelId": "gpt-6.1-sol",
+                "availableModels": [
+                    { "id": "gpt-6.1-sol", "displayName": "GPT-6.1-Sol", "description": "workhorse" },
+                    { "id": "gpt-6-luna", "displayName": "GPT-6-Luna" }
+                ]
+            }
+        });
+        let (current, models) = session_model_info(&response);
+        assert_eq!(current.as_deref(), Some("gpt-6.1-sol"));
+        assert_eq!(models[0].name, "GPT-6.1-Sol");
+        assert_eq!(models[1].id, "gpt-6-luna");
+    }
+
+    #[test]
+    fn session_models_fall_back_to_config_options() {
+        let response = json!({
+            "configOptions": [{
+                "id": "model",
+                "currentValue": "gpt-6-sol",
+                "options": [{ "value": "gpt-6-sol", "name": "GPT-6-Sol" }]
+            }]
+        });
+        let (current, models) = session_model_info(&response);
+        assert_eq!(current.as_deref(), Some("gpt-6-sol"));
+        assert_eq!(models[0].id, "gpt-6-sol");
     }
 }

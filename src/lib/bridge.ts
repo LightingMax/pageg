@@ -47,6 +47,7 @@ export const pageg = {
     invoke("acp_connect", { payload }),
   acpDisconnect: () => invoke("acp_disconnect"),
   acpCancel: () => invoke("acp_cancel"),
+  acpSetModel: (modelId: string) => invoke("acp_set_model", { modelId }),
   acpPrompt: (text: string) => invoke<string>("acp_prompt", { text }),
   acpPromptIsolated: (text: string) => invoke<string>("acp_prompt_isolated", { text }),
   onAcpEvent: (handler: (payload: unknown) => void) => {

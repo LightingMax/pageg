@@ -3,13 +3,12 @@ import { activeChatSession } from "../lib/chat-history";
 import { inferAskScope } from "../lib/context";
 import MarkdownContent from "./MarkdownContent";
 import { tr } from "../lib/i18n";
-import type { AcpStatus, AgentInfo, AppSettings, AskScope, BookRecord, ChatHistory, Highlight, Language, ReaderTurn, SelectionPayload } from "../lib/types";
+import type { AcpStatus, AppSettings, AskScope, BookRecord, ChatHistory, Highlight, Language, ReaderTurn, SelectionPayload } from "../lib/types";
 
 type Tab = "marks" | "tags" | "notes" | "ai" | "glossary";
 
 type Props = {
   book: BookRecord | null;
-  agents: AgentInfo[];
   settings: AppSettings;
   status: AcpStatus;
   stream: string;
@@ -17,8 +16,8 @@ type Props = {
   activeId: string | null;
   onNotes: (value: string) => void;
   onGlossary: (value: string) => void;
-  onSettings: (value: AppSettings) => void;
   onConnect: () => void;
+  onModel: (modelId: string) => void;
   onDisconnect: () => void;
   onAsk: (request: { question: string; scope: AskScope }) => void;
   selection: SelectionPayload | null;
@@ -48,7 +47,6 @@ function kindLabel(language: Language, kind: string) {
 
 export default function SidePanel({
   book,
-  agents,
   settings,
   status,
   stream,
@@ -56,8 +54,8 @@ export default function SidePanel({
   activeId,
   onNotes,
   onGlossary,
-  onSettings,
   onConnect,
+  onModel,
   onDisconnect,
   onAsk,
   onCancel,
@@ -205,29 +203,19 @@ export default function SidePanel({
       {tab === "ai" && (
         <div className="ai-panel">
           <div className="ai-settings">
-            <p className="hint">
-              {tr(language, "ai.hint")}
-            </p>
-            <p className="hint paper-download-hint">
-              {tr(language, "ai.paperDownloadHint")}
-            </p>
-            <select
-              value={settings.agentId}
-              onChange={(e) => onSettings({ ...settings, agentId: e.target.value })}
-            >
-              {agents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
-              <option value="custom">{tr(language, "ai.customCommand")}</option>
-            </select>
-            {settings.agentId === "custom" && (
-              <input
-                value={settings.customCommand}
-                placeholder={tr(language, "ai.commandPlaceholder")}
-                onChange={(e) => onSettings({ ...settings, customCommand: e.target.value })}
-              />
+            {status.models && status.models.length > 0 && (
+              <select
+                className="model-select"
+                value={status.modelId ?? settings.modelId}
+                onChange={(e) => onModel(e.target.value)}
+                aria-label={language === "en-US" ? "Model" : "模型"}
+              >
+                {status.models.map((model) => (
+                  <option key={model.id} value={model.id} title={model.description ?? undefined}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
             )}
             <div className="top-actions">
               {status.state === "ready" || status.state === "prompting" ? (
