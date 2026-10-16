@@ -352,16 +352,28 @@ impl AcpHost {
         if model_id.is_empty() {
             return Err("模型不能为空".into());
         }
+        let (base_model, effort) = split_model_id(model_id);
         let response = io
             .request(
                 "session/set_config_option",
                 json!({
                     "sessionId": session_id,
                     "configId": "model",
-                    "value": model_id,
+                    "value": base_model,
                 }),
             )
             .await?;
+        if let Some(effort) = effort {
+            io.request(
+                "session/set_config_option",
+                json!({
+                    "sessionId": session_id,
+                    "configId": "reasoning_effort",
+                    "value": effort,
+                }),
+            )
+            .await?;
+        }
         let (_, models) = session_model_info(&response);
         let mut guard = self.session.lock().await;
         let session = guard.as_mut().ok_or("ACP session is not ready")?;
@@ -529,7 +541,7 @@ fn session_model_info(value: &Value) -> (Option<String>, Vec<AcpModel>) {
     let current = model_state
         .and_then(|state| state.get("currentModelId"))
         .and_then(Value::as_str)
-        .map(base_model_id)
+        .map(str::to_string)
         .or_else(|| {
             value
                 .get("configOptions")
@@ -541,7 +553,7 @@ fn session_model_info(value: &Value) -> (Option<String>, Vec<AcpModel>) {
                 })
                 .and_then(|option| option.get("currentValue"))
                 .and_then(Value::as_str)
-                .map(base_model_id)
+                .map(str::to_string)
         });
 
     let available = model_state
@@ -571,7 +583,8 @@ fn session_model_info(value: &Value) -> (Option<String>, Vec<AcpModel>) {
         .into_iter()
         .filter_map(|model| {
             let id = model
-                .get("id")
+                .get("modelId")
+                .or_else(|| model.get("id"))
                 .or_else(|| model.get("value"))?
                 .as_str()?
                 .trim();
@@ -579,8 +592,8 @@ fn session_model_info(value: &Value) -> (Option<String>, Vec<AcpModel>) {
                 return None;
             }
             let name = model
-                .get("displayName")
-                .or_else(|| model.get("name"))
+                .get("name")
+                .or_else(|| model.get("displayName"))
                 .and_then(Value::as_str)
                 .filter(|name| !name.trim().is_empty())
                 .unwrap_or(id)
@@ -599,12 +612,12 @@ fn session_model_info(value: &Value) -> (Option<String>, Vec<AcpModel>) {
     (current, models)
 }
 
-fn base_model_id(id: &str) -> String {
-    id.split_once('[')
-        .map(|(model, _)| model)
-        .unwrap_or(id)
-        .trim()
-        .to_string()
+fn split_model_id(id: &str) -> (&str, Option<&str>) {
+    let Some((model, rest)) = id.split_once('[') else {
+        return (id, None);
+    };
+    let effort = rest.strip_suffix(']');
+    (model, effort)
 }
 
 async fn maybe_authenticate(io: &RpcIo, agent: &AgentDefinition) -> Result<(), String> {
@@ -970,5 +983,25 @@ mod tests {
         let (current, models) = session_model_info(&response);
         assert_eq!(current.as_deref(), Some("gpt-6-sol"));
         assert_eq!(models[0].id, "gpt-6-sol");
+    }
+
+    #[test]
+    fn session_models_accept_acp_reasoning_variants() {
+        let response = json!({
+            "models": {
+                "currentModelId": "gpt-6-astra[high]",
+                "availableModels": [
+                    { "modelId": "gpt-6-astra[low]", "name": "6 Astra (low)" },
+                    { "modelId": "gpt-6-astra[high]", "name": "6 Astra (high)" }
+                ]
+            }
+        });
+        let (current, models) = session_model_info(&response);
+        assert_eq!(current.as_deref(), Some("gpt-6-astra[high]"));
+        assert_eq!(models[0].id, "gpt-6-astra[low]");
+        assert_eq!(
+            split_model_id("gpt-6-astra[high]"),
+            ("gpt-6-astra", Some("high"))
+        );
     }
 }
