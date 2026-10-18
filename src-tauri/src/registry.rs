@@ -95,7 +95,7 @@ pub fn resolve(id: &str, custom_command: Option<&str>) -> Option<AgentDefinition
             "Codex",
             "OpenAI Codex via @agentclientprotocol/codex-acp",
             "npx".to_string(),
-            vec!["-y".into(), "@agentclientprotocol/codex-acp@1.12.0".into()],
+            vec!["-y".into(), "@agentclientprotocol/codex-acp@2.2.2".into()],
         ),
         "claude" => (
             "Claude Code",
