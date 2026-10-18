@@ -103,22 +103,43 @@ export default function SidePanel({
   return (
     <aside className="side">
       <div className="tabs">
-        <button className={tab === "marks" ? "active" : ""} onClick={() => setTab("marks")}>
-          {tr(language, "marks.tab")}
-        </button>
-        <button className={tab === "tags" ? "active" : ""} onClick={() => setTab("tags")}>
-          {tr(language, "marks.tags")}
-          {tags.length > 0 && <span className="tab-count">{tags.length}</span>}
-        </button>
-        <button className={tab === "notes" ? "active" : ""} onClick={() => setTab("notes")}>
-          {tr(language, "marks.notes")}
-        </button>
-        <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>
-          AI
-        </button>
-        <button className={tab === "glossary" ? "active" : ""} onClick={() => setTab("glossary")}>
-          {tr(language, "marks.glossary")}
-        </button>
+        <nav className="tabs-list" aria-label={language === "en-US" ? "Reader tools" : "阅读工具"}>
+          <button className={tab === "marks" ? "active" : ""} onClick={() => setTab("marks")}>
+            {tr(language, "marks.tab")}
+          </button>
+          <button className={tab === "tags" ? "active" : ""} onClick={() => setTab("tags")}>
+            {tr(language, "marks.tags")}
+            {tags.length > 0 && <span className="tab-count">{tags.length}</span>}
+          </button>
+          <button className={tab === "notes" ? "active" : ""} onClick={() => setTab("notes")}>
+            {tr(language, "marks.notes")}
+          </button>
+          <button className={tab === "ai" ? "active" : ""} onClick={() => setTab("ai")}>
+            AI
+          </button>
+          <button className={tab === "glossary" ? "active" : ""} onClick={() => setTab("glossary")}>
+            {tr(language, "marks.glossary")}
+          </button>
+        </nav>
+        {tab === "ai" && (
+          <div className="tabs-actions">
+            <button
+              type="button"
+              className="tiny focus-chat-toggle"
+              onClick={onToggleFocus}
+              aria-pressed={focusMode}
+              aria-keyshortcuts="Control+Shift+F Meta+Shift+F"
+              title={language === "en-US" ? "Shortcut: Ctrl/Cmd + Shift + F" : "快捷键：Ctrl/⌘ + Shift + F"}
+            >
+              {tr(language, focusMode ? "ai.exitFocus" : "ai.focusChat")}
+            </button>
+            {status.state === "prompting" && (
+              <button type="button" className="tiny" onClick={onCancel}>
+                {tr(language, "ai.stop")}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {tab === "marks" && (
@@ -199,23 +220,6 @@ export default function SidePanel({
       {tab === "ai" && (
         <div className="ai-panel">
           <div className="ai-settings">
-            <div className="ai-toolbar">
-              <button
-                type="button"
-                className="tiny focus-chat-toggle"
-                onClick={onToggleFocus}
-                aria-pressed={focusMode}
-                aria-keyshortcuts="Control+Shift+F Meta+Shift+F"
-                title={language === "en-US" ? "Shortcut: Ctrl/Cmd + Shift + F" : "快捷键：Ctrl/⌘ + Shift + F"}
-              >
-                {tr(language, focusMode ? "ai.exitFocus" : "ai.focusChat")}
-              </button>
-              {status.state === "prompting" && (
-                <button type="button" className="tiny" onClick={onCancel}>
-                  {tr(language, "ai.stop")}
-                </button>
-              )}
-            </div>
             <div className="chat-session-bar">
               <label>
                 <span>{tr(language, "ai.history")}</span>
