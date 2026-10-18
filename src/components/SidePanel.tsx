@@ -3,23 +3,20 @@ import { activeChatSession } from "../lib/chat-history";
 import { inferAskScope } from "../lib/context";
 import MarkdownContent from "./MarkdownContent";
 import { tr } from "../lib/i18n";
-import type { AcpStatus, AppSettings, AskScope, BookRecord, ChatHistory, Highlight, Language, ReaderTurn, SelectionPayload } from "../lib/types";
+import type { AcpStatus, AskScope, BookRecord, ChatHistory, Highlight, Language, ReaderTurn, SelectionPayload } from "../lib/types";
 
 type Tab = "marks" | "tags" | "notes" | "ai" | "glossary";
 
 type Props = {
   book: BookRecord | null;
-  settings: AppSettings;
   status: AcpStatus;
   stream: string;
   logs: string;
   activeId: string | null;
   onNotes: (value: string) => void;
   onGlossary: (value: string) => void;
-  onConnect: () => void;
-  onModel: (modelId: string) => void;
-  onDisconnect: () => void;
   onAsk: (request: { question: string; scope: AskScope }) => void;
+  onCancel: () => void;
   selection: SelectionPayload | null;
   onClearSelection: () => void;
   chatHistory: ChatHistory;
@@ -27,7 +24,6 @@ type Props = {
   onSelectSession: (id: string) => void;
   onRenameSession: (id: string, title: string) => void;
   onJumpPage: (page: number) => void;
-  onCancel: () => void;
   focusMode: boolean;
   onToggleFocus: () => void;
   onJump: (mark: Highlight) => void;
@@ -49,16 +45,12 @@ function kindLabel(language: Language, kind: string) {
 
 export default function SidePanel({
   book,
-  settings,
   status,
   stream,
   logs,
   activeId,
   onNotes,
   onGlossary,
-  onConnect,
-  onModel,
-  onDisconnect,
   onAsk,
   onCancel,
   onJump,
@@ -208,20 +200,6 @@ export default function SidePanel({
         <div className="ai-panel">
           <div className="ai-settings">
             <div className="ai-toolbar">
-              {status.models && status.models.length > 0 && (
-                <select
-                  className="model-select"
-                  value={status.modelId ?? settings.modelId}
-                  onChange={(e) => onModel(e.target.value)}
-                  aria-label={language === "en-US" ? "Model" : "模型"}
-                >
-                  {status.models.map((model) => (
-                    <option key={model.id} value={model.id} title={model.description ?? undefined}>
-                      {model.name}
-                    </option>
-                  ))}
-                </select>
-              )}
               <button
                 type="button"
                 className="tiny focus-chat-toggle"
@@ -232,24 +210,12 @@ export default function SidePanel({
               >
                 {tr(language, focusMode ? "ai.exitFocus" : "ai.focusChat")}
               </button>
-            </div>
-            <div className="top-actions">
-              {status.state === "ready" || status.state === "prompting" ? (
-                <button className="ghost" onClick={onDisconnect}>
-                  {tr(language, "ai.disconnect")}
-                </button>
-              ) : (
-                <button className="solid" onClick={onConnect}>
-                  {tr(language, "ai.connect")}
-                </button>
-              )}
               {status.state === "prompting" && (
-                <button className="ghost" onClick={onCancel}>
+                <button type="button" className="tiny" onClick={onCancel}>
                   {tr(language, "ai.stop")}
                 </button>
               )}
             </div>
-            <p className="hint">{status.message ?? tr(language, "ai.notConnected")}</p>
             <div className="chat-session-bar">
               <label>
                 <span>{tr(language, "ai.history")}</span>

@@ -867,6 +867,21 @@ export default function App() {
           </button>
         </div>
         <div className="top-actions">
+          {status.models && status.models.length > 0 && (
+            <select
+              className="topbar-model-select"
+              value={status.modelId ?? settings.modelId}
+              onChange={(event) => void selectModel(event.target.value)}
+              aria-label={language === "en-US" ? "Model" : "模型"}
+              title={language === "en-US" ? "Choose a model" : "选择模型"}
+            >
+              {status.models.map((model) => (
+                <option key={model.id} value={model.id} title={model.description ?? undefined}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             className={`agent-chip ${status.state}`}
@@ -950,7 +965,6 @@ export default function App() {
 
           <SidePanel
           book={book}
-          settings={settings}
           status={status}
           stream={stream}
           logs={logs}
@@ -960,9 +974,6 @@ export default function App() {
           aiTick={aiTick}
           onNotes={(notes) => setBook((prev) => (prev ? { ...prev, notes } : prev))}
           onGlossary={(glossary) => setBook((prev) => (prev ? { ...prev, glossary } : prev))}
-          onConnect={() => void connect()}
-          onModel={(modelId) => void selectModel(modelId)}
-          onDisconnect={() => void window.pageg.acpDisconnect()}
           onAsk={({ question, scope }) => void runIntent("ask", question, null, scope)}
           onNewSession={startChatSession}
           onSelectSession={openChatSession}
