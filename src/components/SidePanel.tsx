@@ -28,6 +28,8 @@ type Props = {
   onRenameSession: (id: string, title: string) => void;
   onJumpPage: (page: number) => void;
   onCancel: () => void;
+  focusMode: boolean;
+  onToggleFocus: () => void;
   onJump: (mark: Highlight) => void;
   onDeleteMark: (id: string) => void;
   turn: ReaderTurn | null;
@@ -71,6 +73,8 @@ export default function SidePanel({
   onRenameSession,
   onJumpPage,
   language,
+  focusMode,
+  onToggleFocus,
 }: Props) {
   const [tab, setTab] = useState<Tab>("marks");
   const [question, setQuestion] = useState("");
@@ -203,20 +207,32 @@ export default function SidePanel({
       {tab === "ai" && (
         <div className="ai-panel">
           <div className="ai-settings">
-            {status.models && status.models.length > 0 && (
-              <select
-                className="model-select"
-                value={status.modelId ?? settings.modelId}
-                onChange={(e) => onModel(e.target.value)}
-                aria-label={language === "en-US" ? "Model" : "模型"}
+            <div className="ai-toolbar">
+              {status.models && status.models.length > 0 && (
+                <select
+                  className="model-select"
+                  value={status.modelId ?? settings.modelId}
+                  onChange={(e) => onModel(e.target.value)}
+                  aria-label={language === "en-US" ? "Model" : "模型"}
+                >
+                  {status.models.map((model) => (
+                    <option key={model.id} value={model.id} title={model.description ?? undefined}>
+                      {model.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button
+                type="button"
+                className="tiny focus-chat-toggle"
+                onClick={onToggleFocus}
+                aria-pressed={focusMode}
+                aria-keyshortcuts="Control+Shift+F Meta+Shift+F"
+                title={language === "en-US" ? "Shortcut: Ctrl/Cmd + Shift + F" : "快捷键：Ctrl/⌘ + Shift + F"}
               >
-                {status.models.map((model) => (
-                  <option key={model.id} value={model.id} title={model.description ?? undefined}>
-                    {model.name}
-                  </option>
-                ))}
-              </select>
-            )}
+                {tr(language, focusMode ? "ai.exitFocus" : "ai.focusChat")}
+              </button>
+            </div>
             <div className="top-actions">
               {status.state === "ready" || status.state === "prompting" ? (
                 <button className="ghost" onClick={onDisconnect}>

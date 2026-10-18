@@ -111,6 +111,7 @@ export default function App() {
   const [turn, setTurn] = useState<ReaderTurn | null>(null);
   const [aiTick, setAiTick] = useState(0);
   const [readerSelection, setReaderSelection] = useState<SelectionPayload | null>(null);
+  const [chatFocus, setChatFocus] = useState(false);
   const [resizing, setResizing] = useState<"left" | "right" | null>(null);
   const resizeStart = useRef<{ side: "left" | "right"; x: number; width: number } | null>(null);
   const autoTried = useRef(false);
@@ -211,6 +212,7 @@ export default function App() {
       setLogs("");
       setTurn(null);
       setChatHistory(emptyChatHistory());
+      setChatFocus(false);
       await window.pageg.moveBook(next.id, "");
       const adopted = { ...next, onDesk: true, lastOpenedAt: new Date().toISOString() };
       setError(null);
@@ -355,6 +357,11 @@ export default function App() {
       if (!book) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setChatFocus((value) => !value);
+        return;
+      }
       if (window.getSelection()?.toString().trim()) return;
       if (e.key === "ArrowLeft") setPage((p) => Math.max(1, p - 1));
       if (e.key === "ArrowRight") setPage((p) => Math.min(pageCount, p + 1));
@@ -839,6 +846,7 @@ export default function App() {
             setBook(null);
             setTurn(null);
             setStream("");
+            setChatFocus(false);
           }}
           title={tr(language, "app.backDesk")}
         >
@@ -888,7 +896,7 @@ export default function App() {
       )}
 
       {book ? (
-        <div className="shell" style={{ "--right-panel-width": `${settings.rightPanelWidth}px` } as CSSProperties}>
+        <div className={`shell ${chatFocus ? "chat-focus" : ""}`} style={{ "--right-panel-width": `${settings.rightPanelWidth}px` } as CSSProperties}>
           <PdfPane
           sourcePath={book?.sourcePath ?? null}
           page={page}
@@ -963,6 +971,8 @@ export default function App() {
           selection={readerSelection}
           onClearSelection={() => setReaderSelection(null)}
           onCancel={() => void window.pageg.acpCancel()}
+          focusMode={chatFocus}
+          onToggleFocus={() => setChatFocus((value) => !value)}
           onJump={(mark) => {
             setPage(mark.page);
             setActiveId(mark.id);
