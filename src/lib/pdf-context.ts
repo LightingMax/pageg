@@ -17,7 +17,8 @@ export async function extractDocumentContext(
   buffer: ArrayBuffer,
   onProgress?: (page: number, total: number) => void,
 ): Promise<DocumentContext> {
-  const pdf = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+  const task = pdfjs.getDocument({ data: new Uint8Array(buffer) });
+  const pdf = await task.promise;
   try {
     const rawPages: Array<{ page: number; lines: string[] }> = [];
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
@@ -34,6 +35,6 @@ export async function extractDocumentContext(
       pages: cleanExtractedPages(rawPages),
     };
   } finally {
-    await pdf.destroy();
+    await task.destroy();
   }
 }

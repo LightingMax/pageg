@@ -1,6 +1,6 @@
 {
   "name": "pageg",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Local AI PDF reader with ACP agent integration",
   "type": "module",
@@ -19,8 +19,8 @@
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "@tauri-apps/plugin-notification": "^2.3.1",
-    "katex": "^0.16.47",
-    "pdfjs-dist": "^5.4.149",
+    "katex": "^0.19.0",
+    "pdfjs-dist": "^6.2.108",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

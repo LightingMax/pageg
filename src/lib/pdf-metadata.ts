@@ -135,7 +135,8 @@ export function deriveMetadata(
 }
 
 export async function extractPdfMetadata(buffer: ArrayBuffer, filename: string): Promise<BookMetadataPatch> {
-  const pdf = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+  const task = pdfjs.getDocument({ data: new Uint8Array(buffer) });
+  const pdf = await task.promise;
   try {
     const [metadata, page] = await Promise.all([pdf.getMetadata().catch(() => null), pdf.getPage(1)]);
     const content = await page.getTextContent();
@@ -143,6 +144,6 @@ export async function extractPdfMetadata(buffer: ArrayBuffer, filename: string):
     const info = (metadata?.info ?? {}) as unknown as PdfInfo;
     return deriveMetadata(info, linesFromPieces(content.items as TextPiece[]), filename, pdf.numPages, viewport.height);
   } finally {
-    await pdf.destroy();
+    await task.destroy();
   }
 }
