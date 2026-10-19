@@ -11,7 +11,7 @@ import { extractPdfMetadata } from "./lib/pdf-metadata";
 import { extractDocumentContext, validDocumentContext } from "./lib/pdf-context";
 import { buildBookDigest, relevantPages, validBookDigest } from "./lib/book-context";
 import { tr } from "./lib/i18n";
-import { extractPaperDownload, wantsPaperDownload } from "./lib/paper-download";
+import { paperSearchQuery, wantsPaperLookup } from "./lib/paper-download";
 import {
   appendChatTurn,
   conversationMemory,
@@ -38,6 +38,8 @@ import type {
   DocumentContext,
   Highlight,
   MarkOptions,
+  PaperCandidate,
+  PaperSearchState,
   ReaderTurn,
   SelectionPayload,
 } from "./lib/types";
@@ -111,6 +113,7 @@ export default function App() {
   const [turn, setTurn] = useState<ReaderTurn | null>(null);
   const [aiTick, setAiTick] = useState(0);
   const [readerSelection, setReaderSelection] = useState<SelectionPayload | null>(null);
+  const [paperSearch, setPaperSearch] = useState<PaperSearchState | null>(null);
   const [chatFocus, setChatFocus] = useState(false);
   const [resizing, setResizing] = useState<"left" | "right" | null>(null);
   const resizeStart = useRef<{ side: "left" | "right"; x: number; width: number } | null>(null);
@@ -119,6 +122,7 @@ export default function App() {
   const contextRequests = useRef(new Map<string, Promise<DocumentContext>>());
   const currentBookId = useRef<string | null>(null);
   const requestBookId = useRef<string | null>(null);
+  const paperSearchRequest = useRef(0);
   const language = settings.language;
 
   const startResize = useCallback((side: "left" | "right", event: ReactPointerEvent<HTMLElement>) => {
@@ -208,6 +212,8 @@ export default function App() {
       if (!next) return;
       currentBookId.current = next.id;
       requestBookId.current = null;
+      paperSearchRequest.current += 1;
+      setPaperSearch(null);
       setStream("");
       setLogs("");
       setTurn(null);
@@ -277,6 +283,73 @@ export default function App() {
       setError(asError(err));
     }
   }, [adoptBook]);
+
+  const beginPaperSearch = async (question: string) => {
+    const query = paperSearchQuery(question);
+    const requestId = ++paperSearchRequest.current;
+    setStream("");
+    setTurn(null);
+    setError(null);
+    setPaperSearch({ query, loading: true, candidates: [], selectedId: "" });
+    if (!query) {
+      setPaperSearch({
+        query: "",
+        loading: false,
+        candidates: [],
+        selectedId: "",
+        error: language === "en-US" ? "Tell me the paper title first." : "请先告诉我论文题名。",
+      });
+      return;
+    }
+    try {
+      const candidates = (await window.pageg.searchPapers(query)) as PaperCandidate[];
+      if (requestId !== paperSearchRequest.current) return;
+      setPaperSearch({ query, loading: false, candidates, selectedId: candidates[0]?.id ?? "" });
+    } catch (err) {
+      if (requestId !== paperSearchRequest.current) return;
+      setPaperSearch({
+        query,
+        loading: false,
+        candidates: [],
+        selectedId: "",
+        error: asError(err),
+      });
+    }
+  };
+
+  const selectPaperCandidate = (id: string) => {
+    setPaperSearch((current) => (current ? { ...current, selectedId: id } : current));
+  };
+
+  const cancelPaperSearch = () => {
+    paperSearchRequest.current += 1;
+    setPaperSearch(null);
+  };
+
+  const confirmPaperDownload = async () => {
+    const current = paperSearch;
+    const candidate = current?.candidates.find((item) => item.id === current.selectedId);
+    if (!current || !candidate || current.loading || current.downloading) return;
+    setPaperSearch({ ...current, downloading: true });
+    try {
+      const downloaded = (await window.pageg.downloadPdf(
+        candidate.pdfUrl,
+        `${candidate.title || "paper"}.pdf`,
+      )) as BookRecord;
+      await adoptBook(downloaded);
+      const freshHistory = emptyChatHistory();
+      const nextHistory = renameChatSession(
+        freshHistory,
+        freshHistory.activeSessionId,
+        candidate.title || downloaded.title,
+      );
+      setChatHistory(nextHistory);
+      await window.pageg.saveChatHistory(downloaded.id, nextHistory);
+      setAiTick((value) => value + 1);
+    } catch (err) {
+      setPaperSearch({ ...current, downloading: false, error: asError(err) });
+    }
+  };
 
   useEffect(() => {
     if (!window.pageg) return;
@@ -558,6 +631,11 @@ export default function App() {
     const updateTurn = (next: ReaderTurn | null) => {
       if (currentBookId.current === requestBook.id) setTurn(next);
     };
+    if (intent === "ask" && wantsPaperLookup(extra ?? "")) {
+      setAiTick((n) => n + 1);
+      void beginPaperSearch(extra ?? "");
+      return;
+    }
     if (status.state !== "ready" && status.state !== "prompting") {
       setError(tr(language, "app.connectBeforeAsk"));
       setSetupOpen(true);
@@ -650,19 +728,7 @@ export default function App() {
       }
       const raw =
         intent === "ask" ? await window.pageg.acpPromptIsolated(prompt) : await window.pageg.acpPrompt(prompt);
-      const downloadRequest = intent === "ask" && wantsPaperDownload(extra ?? "");
-      const extracted = extractPaperDownload(raw, downloadRequest);
-      const parsedResult = readerAnswer(extracted.text, intent);
-      const result =
-        !parsedResult.ok && downloadRequest
-          ? {
-              ok: true,
-              text:
-                language === "en-US"
-                  ? "I found a paper and am downloading it into your reading desk…"
-                  : "我找到了一篇相关论文，正在下载并加载到你的书桌…",
-            }
-          : parsedResult;
+      const result = readerAnswer(raw, intent);
       if (currentBookId.current === requestBook.id) setStream(result.text);
       updateTurn({ intent, quote: selected || extra || "", answer: result.text, ok: result.ok });
       if (!result.ok) {
@@ -713,35 +779,6 @@ export default function App() {
               }
             : prev,
         );
-      }
-      if (downloadRequest && extracted.candidate) {
-        try {
-          const downloaded = (await window.pageg.downloadPdf(
-            extracted.candidate.url,
-            extracted.candidate.filename ?? extracted.candidate.title ?? "",
-          )) as BookRecord;
-          await adoptBook(downloaded);
-        } catch (downloadError) {
-          if (currentBookId.current === requestBook.id) {
-            setError(
-              (language === "en-US" ? "Paper download failed" : "论文下载失败") + "：" + asError(downloadError),
-            );
-          }
-        }
-      }
-      if (downloadRequest && !extracted.candidate) {
-        try {
-          const downloaded = (await window.pageg.searchAndDownloadPaper(extra ?? "")) as BookRecord;
-          await adoptBook(downloaded);
-        } catch (downloadError) {
-          if (currentBookId.current === requestBook.id) {
-            setError(
-              (language === "en-US" ? "Paper search or download failed" : "论文搜索或下载失败") +
-                "：" +
-                asError(downloadError),
-            );
-          }
-        }
       }
     } catch (err) {
       const message = asError(err);
@@ -989,6 +1026,10 @@ export default function App() {
             setActiveId(mark.id);
           }}
           onDeleteMark={deleteHighlight}
+          paperSearch={paperSearch}
+          onSelectPaper={selectPaperCandidate}
+          onConfirmPaper={() => void confirmPaperDownload()}
+          onCancelPaper={cancelPaperSearch}
           language={language}
           />
         </div>

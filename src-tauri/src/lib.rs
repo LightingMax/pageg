@@ -4,7 +4,8 @@ mod setup;
 mod vault;
 
 use acp::AcpHost;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
@@ -170,16 +171,83 @@ fn arxiv_pdf_url(block: &str) -> Option<String> {
     url.starts_with("https://").then_some(url)
 }
 
-async fn search_arxiv_pdf(
+#[derive(Clone, Serialize)]
+struct PaperCandidate {
+    id: String,
+    title: String,
+    authors: Vec<String>,
+    year: String,
+    summary: String,
+    url: String,
+    #[serde(rename = "pdfUrl")]
+    pdf_url: String,
+    source: String,
+}
+
+fn arxiv_candidates(xml: &str, fallback_title: &str) -> Vec<PaperCandidate> {
+    let mut seen = std::collections::HashSet::new();
+    xml.split("<entry>")
+        .skip(1)
+        .filter_map(|block| {
+            let pdf_url = arxiv_pdf_url(block)?;
+            if !seen.insert(pdf_url.clone()) {
+                return None;
+            }
+            let raw_id = xml_value(block, "id")?;
+            let id = raw_id
+                .rsplit('/')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            if id.is_empty() {
+                return None;
+            }
+            let title = xml_value(block, "title")
+                .unwrap_or_else(|| fallback_title.to_string())
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            let summary = xml_value(block, "summary")
+                .unwrap_or_default()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            let authors = block
+                .split("<author>")
+                .skip(1)
+                .filter_map(|author| xml_value(author, "name"))
+                .map(|name| name.trim().to_string())
+                .filter(|name| !name.is_empty())
+                .take(8)
+                .collect::<Vec<_>>();
+            let year = xml_value(block, "published")
+                .and_then(|value| value.get(0..4).map(str::to_string))
+                .unwrap_or_default();
+            Some(PaperCandidate {
+                id: id.clone(),
+                title,
+                authors,
+                year,
+                summary,
+                url: format!("https://arxiv.org/abs/{}", id),
+                pdf_url,
+                source: "arXiv".into(),
+            })
+        })
+        .collect()
+}
+
+async fn search_arxiv_candidates(
     client: &reqwest::Client,
     query: &str,
-) -> Result<(String, String), String> {
+) -> Result<Vec<PaperCandidate>, String> {
     let terms = search_terms(query);
     if terms.trim().is_empty() {
         return Err("没有足够的论文关键词".into());
     }
     let endpoint = format!(
-        "https://export.arxiv.org/api/query?search_query=all%3A{}&start=0&max_results=5&sortBy=relevance&sortOrder=descending",
+        "https://export.arxiv.org/api/query?search_query=all%3A{}&start=0&max_results=8&sortBy=relevance&sortOrder=descending",
         encode_query(&terms)
     );
     let response = client
@@ -194,13 +262,178 @@ async fn search_arxiv_pdf(
         .text()
         .await
         .map_err(|e| format!("读取论文搜索结果失败：{e}"))?;
-    for block in xml.split("<entry>").skip(1) {
-        if let Some(url) = arxiv_pdf_url(block) {
-            let title = xml_value(block, "title").unwrap_or_else(|| terms.clone());
-            return Ok((url, title.replace('\n', " ").trim().to_string()));
+    let candidates = arxiv_candidates(&xml, &terms);
+    if candidates.is_empty() {
+        return Err(format!("没有找到与“{terms}”匹配的开放 PDF"));
+    }
+    Ok(candidates)
+}
+
+fn openalex_abstract(value: &Value) -> String {
+    let Some(index) = value.as_object() else {
+        return String::new();
+    };
+    let mut words = Vec::new();
+    for (word, positions) in index {
+        if let Some(items) = positions.as_array() {
+            for position in items.iter().filter_map(Value::as_u64) {
+                words.push((position, word.as_str()));
+            }
         }
     }
-    Err(format!("没有找到与“{terms}”匹配的开放 PDF"))
+    words.sort_by_key(|(position, _)| *position);
+    words
+        .into_iter()
+        .map(|(_, word)| word)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn openalex_url(value: Option<&Value>) -> Option<String> {
+    let url = value?.as_str()?.trim();
+    if url.starts_with("https://") {
+        Some(url.to_string())
+    } else if url.starts_with("http://") {
+        Some(url.replacen("http://", "https://", 1))
+    } else {
+        None
+    }
+}
+
+fn openalex_candidates(value: &Value, fallback_title: &str) -> Vec<PaperCandidate> {
+    let Some(results) = value.get("results").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::HashSet::new();
+    results
+        .iter()
+        .filter_map(|work| {
+            let location = work.get("primary_location")?;
+            let pdf_url = openalex_url(location.get("pdf_url")).or_else(|| {
+                openalex_url(work.get("open_access").and_then(|item| item.get("oa_url")))
+            })?;
+            if !seen.insert(pdf_url.clone()) {
+                return None;
+            }
+            let id = work
+                .get("id")
+                .and_then(Value::as_str)
+                .and_then(|value| value.rsplit('/').next())
+                .unwrap_or_default()
+                .to_string();
+            if id.is_empty() {
+                return None;
+            }
+            let title = work
+                .get("title")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(fallback_title)
+                .trim()
+                .to_string();
+            let authors = work
+                .get("authorships")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|author| {
+                    author
+                        .get("author")
+                        .and_then(|item| item.get("display_name"))
+                })
+                .filter_map(Value::as_str)
+                .take(8)
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            let year = work
+                .get("publication_year")
+                .and_then(Value::as_u64)
+                .map(|value| value.to_string())
+                .unwrap_or_default();
+            let summary =
+                openalex_abstract(work.get("abstract_inverted_index").unwrap_or(&Value::Null));
+            let url = openalex_url(location.get("landing_page_url"))
+                .or_else(|| openalex_url(work.get("doi")))
+                .unwrap_or_else(|| format!("https://openalex.org/{id}"));
+            Some(PaperCandidate {
+                id,
+                title,
+                authors,
+                year,
+                summary,
+                url,
+                pdf_url,
+                source: "OpenAlex".into(),
+            })
+        })
+        .collect()
+}
+
+async fn search_openalex_candidates(
+    client: &reqwest::Client,
+    query: &str,
+) -> Result<Vec<PaperCandidate>, String> {
+    let terms = search_terms(query);
+    if terms.trim().is_empty() {
+        return Err("没有足够的论文关键词".into());
+    }
+    let endpoint = format!(
+        "https://api.openalex.org/works?search={}&per-page=8&select=id,title,publication_year,authorships,abstract_inverted_index,primary_location,open_access,doi",
+        encode_query(&terms)
+    );
+    let response = client
+        .get(endpoint)
+        .send()
+        .await
+        .map_err(|e| format!("OpenAlex 搜索失败：{e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("OpenAlex 搜索返回 HTTP {}", response.status()));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("读取 OpenAlex 结果失败：{e}"))?;
+    let value =
+        serde_json::from_str::<Value>(&body).map_err(|e| format!("解析 OpenAlex 结果失败：{e}"))?;
+    let candidates = openalex_candidates(&value, &terms);
+    if candidates.is_empty() {
+        return Err(format!("没有找到与“{terms}”匹配的开放 PDF"));
+    }
+    Ok(candidates)
+}
+
+async fn search_paper_candidates(
+    client: &reqwest::Client,
+    query: &str,
+) -> Result<Vec<PaperCandidate>, String> {
+    match search_arxiv_candidates(client, query).await {
+        Ok(candidates) => Ok(candidates),
+        Err(arxiv_error) => search_openalex_candidates(client, query)
+            .await
+            .map_err(|openalex_error| format!("{arxiv_error}；{openalex_error}")),
+    }
+}
+
+async fn search_arxiv_pdf(
+    client: &reqwest::Client,
+    query: &str,
+) -> Result<(String, String), String> {
+    let candidate = search_paper_candidates(client, query)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "没有找到开放 PDF".to_string())?;
+    Ok((candidate.pdf_url, candidate.title))
+}
+
+#[tauri::command]
+async fn search_papers(query: String) -> Result<Vec<PaperCandidate>, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("Pageg/0.2 (local PDF reader)")
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("无法初始化论文搜索：{e}"))?;
+    search_paper_candidates(&client, &query).await
 }
 
 #[tauri::command]
@@ -513,6 +746,7 @@ pub fn run() {
             open_pdf_path,
             import_pdf_bytes,
             download_pdf,
+            search_papers,
             search_and_download_pdf,
             read_pdf,
             library_list,
@@ -585,5 +819,31 @@ mod tests {
             Some("https://arxiv.org/pdf/2504.19413v1")
         );
         assert_eq!(xml_value(entry, "title").as_deref(), Some("Mem0: Paper"));
+    }
+
+    #[test]
+    fn openalex_results_keep_open_pdf_candidates() {
+        let value = serde_json::json!({
+            "results": [{
+                "id": "https://openalex.org/W1",
+                "title": "Cortex: Consolidating Context into Parametric Memory",
+                "publication_year": 2026,
+                "authorships": [{"author": {"display_name": "Jintian Zhang"}}],
+                "abstract_inverted_index": {"Context": [0], "becomes": [1], "memory": [2]},
+                "primary_location": {
+                    "landing_page_url": "https://arxiv.org/abs/2610.20399",
+                    "pdf_url": "https://arxiv.org/pdf/2610.20399"
+                }
+            }]
+        });
+        let candidates = openalex_candidates(&value, "cortex");
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(
+            candidates[0].title,
+            "Cortex: Consolidating Context into Parametric Memory"
+        );
+        assert_eq!(candidates[0].pdf_url, "https://arxiv.org/pdf/2610.20399");
+        assert_eq!(candidates[0].authors, vec!["Jintian Zhang"]);
+        assert_eq!(candidates[0].summary, "Context becomes memory");
     }
 }

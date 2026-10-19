@@ -6,6 +6,7 @@ export const pageg = {
   openPdfPath: (path: string) => invoke("open_pdf_path", { path }),
   importPdf: (name: string, data: number[]) => invoke("import_pdf_bytes", { name, data }),
   downloadPdf: (url: string, filename = "") => invoke("download_pdf", { url, filename }),
+  searchPapers: (query: string) => invoke("search_papers", { query }),
   searchAndDownloadPaper: (query: string, filename = "") =>
     invoke("search_and_download_pdf", { query, filename }),
   readPdf: async (filePath: string) => {

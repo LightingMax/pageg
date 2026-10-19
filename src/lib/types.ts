@@ -62,6 +62,26 @@ export type AgentModel = {
   description?: string;
 };
 
+export type PaperCandidate = {
+  id: string;
+  title: string;
+  authors: string[];
+  year: string;
+  summary: string;
+  url: string;
+  pdfUrl: string;
+  source: string;
+};
+
+export type PaperSearchState = {
+  query: string;
+  loading: boolean;
+  candidates: PaperCandidate[];
+  selectedId: string;
+  downloading?: boolean;
+  error?: string;
+};
+
 export type AppSettings = {
   agentId: string;
   customCommand: string;

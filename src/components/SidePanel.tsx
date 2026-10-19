@@ -3,7 +3,7 @@ import { activeChatSession } from "../lib/chat-history";
 import { inferAskScope } from "../lib/context";
 import MarkdownContent from "./MarkdownContent";
 import { tr } from "../lib/i18n";
-import type { AcpStatus, AskScope, BookRecord, ChatHistory, Highlight, Language, ReaderTurn, SelectionPayload } from "../lib/types";
+import type { AcpStatus, AskScope, BookRecord, ChatHistory, Highlight, Language, PaperSearchState, ReaderTurn, SelectionPayload } from "../lib/types";
 
 type Tab = "marks" | "tags" | "notes" | "ai" | "glossary";
 
@@ -28,6 +28,10 @@ type Props = {
   onToggleFocus: () => void;
   onJump: (mark: Highlight) => void;
   onDeleteMark: (id: string) => void;
+  paperSearch: PaperSearchState | null;
+  onSelectPaper: (id: string) => void;
+  onConfirmPaper: () => void;
+  onCancelPaper: () => void;
   turn: ReaderTurn | null;
   aiTick: number;
   language: Language;
@@ -55,6 +59,10 @@ export default function SidePanel({
   onCancel,
   onJump,
   onDeleteMark,
+  paperSearch,
+  onSelectPaper,
+  onConfirmPaper,
+  onCancelPaper,
   turn,
   aiTick,
   selection,
@@ -220,6 +228,57 @@ export default function SidePanel({
       {tab === "ai" && (
         <div className="ai-panel">
           <div className="ai-settings">
+            {paperSearch && (
+              <section className="paper-search-panel" aria-live="polite">
+                <div className="paper-search-heading">
+                  <div>
+                    <b>{tr(language, "ai.paperCandidates")}</b>
+                    <small>{paperSearch.query || tr(language, "ai.paperSearchHint")}</small>
+                  </div>
+                  <button type="button" className="paper-search-close" onClick={onCancelPaper}>
+                    {tr(language, "ai.cancelPaperSearch")}
+                  </button>
+                </div>
+                {paperSearch.loading ? (
+                  <p className="paper-search-state">{tr(language, "ai.searchingPapers")}</p>
+                ) : paperSearch.error ? (
+                  <p className="paper-search-state error">{paperSearch.error}</p>
+                ) : (
+                  <>
+                    <div className="paper-candidate-list">
+                      {paperSearch.candidates.map((candidate) => (
+                        <button
+                          type="button"
+                          key={candidate.id}
+                          className={`paper-candidate ${candidate.id === paperSearch.selectedId ? "selected" : ""}`}
+                          onClick={() => onSelectPaper(candidate.id)}
+                        >
+                          <span className="paper-candidate-check" aria-hidden="true">{candidate.id === paperSearch.selectedId ? "✓" : ""}</span>
+                          <span className="paper-candidate-body">
+                            <strong>{candidate.title}</strong>
+                            <small>{[candidate.year, candidate.authors.slice(0, 3).join(", "), candidate.source].filter(Boolean).join(" · ")}</small>
+                            {candidate.summary && <em>{candidate.summary}</em>}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    {paperSearch.candidates.length > 0 && (
+                      <div className="paper-search-actions">
+                        <span>{tr(language, "ai.paperConfirmHint")}</span>
+                        <button
+                          type="button"
+                          className="solid"
+                          onClick={onConfirmPaper}
+                          disabled={!paperSearch.selectedId || paperSearch.downloading}
+                        >
+                          {paperSearch.downloading ? tr(language, "ai.downloadingPaper") : tr(language, "ai.downloadSelected")}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
+            )}
             <div className="chat-session-bar">
               <label>
                 <span>{tr(language, "ai.history")}</span>

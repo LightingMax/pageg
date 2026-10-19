@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { extractPaperDownload, wantsPaperDownload } from "./paper-download";
+import { extractPaperDownload, paperSearchQuery, wantsPaperDownload, wantsPaperLookup } from "./paper-download";
 
 describe("paper download requests", () => {
   it("recognizes Chinese and English download requests", () => {
     expect(wantsPaperDownload("帮我下载 mem0 的论文")).toBe(true);
     expect(wantsPaperDownload("find and download the paper about memory")).toBe(true);
     expect(wantsPaperDownload("这篇文章的核心观点是什么？")).toBe(false);
+  });
+
+  it("recognizes paper lookup requests and keeps the title as the search query", () => {
+    const question = "我今天想看看 cortex: consolidating context 这篇论文";
+    expect(wantsPaperLookup(question)).toBe(true);
+    expect(paperSearchQuery(question)).toBe("cortex consolidating context");
   });
 
   it("extracts and removes the structured agent marker", () => {
