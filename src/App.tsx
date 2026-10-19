@@ -232,7 +232,6 @@ export default function App() {
       setLogs("");
       setTurn(null);
       setChatHistory(emptyChatHistory());
-      setChatFocus(false);
       await window.pageg.moveBook(next.id, "");
       const adopted = { ...next, onDesk: true, lastOpenedAt: new Date().toISOString() };
       setError(null);
