@@ -34,6 +34,7 @@ import type {
   BookRecord,
   Catalog,
   ChatHistory,
+  CustomReadingLens,
   DiagnoseReport,
   DocumentContext,
   Highlight,
@@ -54,6 +55,7 @@ const defaultSettings: AppSettings = {
   openTabs: [],
   currentShelf: "",
   modelId: "",
+  customReadingLenses: [],
 };
 
 const MIN_LEFT_PANEL = 104;
@@ -90,6 +92,18 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
     openTabs: value?.openTabs ?? [],
     currentShelf: value?.currentShelf ?? "",
     modelId: typeof value?.modelId === "string" ? value.modelId.trim() : defaultSettings.modelId,
+    customReadingLenses: Array.isArray(value?.customReadingLenses)
+      ? value.customReadingLenses
+          .filter((lens): lens is CustomReadingLens => Boolean(lens && typeof lens === "object"))
+          .map((lens) => ({
+            id: typeof lens.id === "string" && lens.id.trim() ? lens.id.trim() : crypto.randomUUID(),
+            label: typeof lens.label === "string" ? lens.label.trim() : "",
+            description: typeof lens.description === "string" ? lens.description.trim() : "",
+            prompt: typeof lens.prompt === "string" ? lens.prompt.trim() : "",
+          }))
+          .filter((lens) => lens.label && lens.prompt)
+          .slice(0, 50)
+      : defaultSettings.customReadingLenses,
   };
 }
 
@@ -1012,6 +1026,8 @@ export default function App() {
           onNotes={(notes) => setBook((prev) => (prev ? { ...prev, notes } : prev))}
           onGlossary={(glossary) => setBook((prev) => (prev ? { ...prev, glossary } : prev))}
           onAsk={({ question, scope }) => void runIntent("ask", question, null, scope)}
+          customReadingLenses={settings.customReadingLenses}
+          onCustomReadingLenses={(customReadingLenses) => setSettings((previous) => ({ ...previous, customReadingLenses }))}
           onNewSession={startChatSession}
           onSelectSession={openChatSession}
           onRenameSession={renameSession}

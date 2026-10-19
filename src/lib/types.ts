@@ -82,6 +82,13 @@ export type PaperSearchState = {
   error?: string;
 };
 
+export type CustomReadingLens = {
+  id: string;
+  label: string;
+  description: string;
+  prompt: string;
+};
+
 export type AppSettings = {
   agentId: string;
   customCommand: string;
@@ -92,6 +99,7 @@ export type AppSettings = {
   openTabs: string[];
   currentShelf: string;
   modelId: string;
+  customReadingLenses: CustomReadingLens[];
 };
 
 export type ReaderTurn = {

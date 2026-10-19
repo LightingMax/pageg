@@ -4,7 +4,7 @@ import { inferAskScope } from "../lib/context";
 import MarkdownContent from "./MarkdownContent";
 import { tr } from "../lib/i18n";
 import { READING_LENSES } from "../lib/reading-prompts";
-import type { AcpStatus, AskScope, BookRecord, ChatHistory, Highlight, Language, PaperSearchState, ReaderTurn, SelectionPayload } from "../lib/types";
+import type { AcpStatus, AskScope, BookRecord, ChatHistory, CustomReadingLens, Highlight, Language, PaperSearchState, ReaderTurn, SelectionPayload } from "../lib/types";
 
 type Tab = "marks" | "tags" | "notes" | "ai" | "glossary";
 
@@ -33,6 +33,8 @@ type Props = {
   onSelectPaper: (id: string) => void;
   onConfirmPaper: () => void;
   onCancelPaper: () => void;
+  customReadingLenses: CustomReadingLens[];
+  onCustomReadingLenses: (lenses: CustomReadingLens[]) => void;
   turn: ReaderTurn | null;
   aiTick: number;
   language: Language;
@@ -64,6 +66,8 @@ export default function SidePanel({
   onSelectPaper,
   onConfirmPaper,
   onCancelPaper,
+  customReadingLenses,
+  onCustomReadingLenses,
   turn,
   aiTick,
   selection,
@@ -80,6 +84,8 @@ export default function SidePanel({
   const [tab, setTab] = useState<Tab>("marks");
   const [question, setQuestion] = useState("");
   const questionInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [lensManagerOpen, setLensManagerOpen] = useState(false);
+  const [lensDraft, setLensDraft] = useState<CustomReadingLens | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const sorted = [...(book?.highlights ?? [])].sort(
@@ -110,6 +116,55 @@ export default function SidePanel({
     setQuestion(prompt);
     requestAnimationFrame(() => questionInputRef.current?.focus());
   };
+
+  const startNewLens = () => {
+    setLensDraft({
+      id: `custom-${crypto.randomUUID()}`,
+      label: "",
+      description: "",
+      prompt: "",
+    });
+    setLensManagerOpen(true);
+  };
+
+  const startEditLens = (lens: CustomReadingLens) => {
+    setLensDraft({ ...lens });
+    setLensManagerOpen(true);
+  };
+
+  const cancelLensEdit = () => setLensDraft(null);
+
+  const saveLens = () => {
+    if (!lensDraft?.label.trim() || !lensDraft.prompt.trim()) return;
+    const next = {
+      ...lensDraft,
+      label: lensDraft.label.trim(),
+      description: lensDraft.description.trim(),
+      prompt: lensDraft.prompt.trim(),
+    };
+    onCustomReadingLenses([...customReadingLenses.filter((lens) => lens.id !== next.id), next]);
+    setLensDraft(null);
+  };
+
+  const deleteLens = (id: string) => {
+    onCustomReadingLenses(customReadingLenses.filter((lens) => lens.id !== id));
+    if (lensDraft?.id === id) setLensDraft(null);
+  };
+
+  const lensViews = [
+    ...READING_LENSES.map((lens) => ({
+      id: lens.id,
+      label: lens.label[language],
+      description: lens.description[language],
+      prompt: lens.prompt[language],
+    })),
+    ...customReadingLenses.map((lens) => ({
+      id: lens.id,
+      label: lens.label,
+      description: lens.description || tr(language, "ai.customLens"),
+      prompt: lens.prompt,
+    })),
+  ];
 
   useEffect(() => {
     if (aiTick > 0) setTab("ai");
@@ -347,23 +402,106 @@ export default function SidePanel({
                   <b>{tr(language, "ai.readingLenses")}</b>
                   <small>{tr(language, "ai.readingLensesHint")}</small>
                 </div>
-                <span>{tr(language, "ai.readingLensesAction")}</span>
+                <div className="reading-lenses-heading-actions">
+                  <span>{tr(language, "ai.readingLensesAction")}</span>
+                  <button type="button" className="tiny" onClick={() => setLensManagerOpen((open) => !open)}>
+                    {tr(language, lensManagerOpen ? "ai.closeLensManager" : "ai.manageLenses")}
+                  </button>
+                </div>
               </div>
               <div className="reading-lens-list">
-                {READING_LENSES.map((lens) => (
+                {lensViews.map((lens) => (
                   <button
                     type="button"
                     className="reading-lens"
                     key={lens.id}
-                    onClick={() => useReadingLens(lens.prompt[language])}
+                    onClick={() => useReadingLens(lens.prompt)}
                     disabled={status.state !== "ready"}
-                    title={lens.description[language]}
+                    title={lens.description}
                   >
-                    <strong>{lens.label[language]}</strong>
-                    <small>{lens.description[language]}</small>
+                    <strong>{lens.label}</strong>
+                    <small>{lens.description}</small>
                   </button>
                 ))}
               </div>
+              {lensManagerOpen && (
+                <div className="reading-lens-manager">
+                  <div className="reading-lens-manager-head">
+                    <span>{tr(language, "ai.customLenses")}</span>
+                    <button type="button" className="tiny" onClick={startNewLens}>
+                      {tr(language, "ai.addLens")}
+                    </button>
+                  </div>
+                  {customReadingLenses.length === 0 && !lensDraft ? (
+                    <p className="reading-lens-empty">{tr(language, "ai.customLensEmpty")}</p>
+                  ) : (
+                    <div className="custom-lens-list">
+                      {customReadingLenses.map((lens) => (
+                        <div className="custom-lens-row" key={lens.id}>
+                          <div>
+                            <strong>{lens.label}</strong>
+                            <small>{lens.description || tr(language, "ai.customLens")}</small>
+                          </div>
+                          <div className="custom-lens-actions">
+                            <button type="button" className="tiny" onClick={() => startEditLens(lens)}>
+                              {tr(language, "ai.editLens")}
+                            </button>
+                            <button type="button" className="tiny danger" onClick={() => deleteLens(lens.id)}>
+                              {tr(language, "ai.deleteLens")}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {lensDraft && (
+                    <form
+                      className="reading-lens-form"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        saveLens();
+                      }}
+                    >
+                      <label>
+                        <span>{tr(language, "ai.lensLabel")}</span>
+                        <input
+                          value={lensDraft.label}
+                          maxLength={40}
+                          placeholder={tr(language, "ai.lensLabelPlaceholder")}
+                          onChange={(event) => setLensDraft((draft) => draft && { ...draft, label: event.target.value })}
+                          autoFocus
+                        />
+                      </label>
+                      <label>
+                        <span>{tr(language, "ai.lensDescription")}</span>
+                        <input
+                          value={lensDraft.description}
+                          maxLength={80}
+                          placeholder={tr(language, "ai.lensDescriptionPlaceholder")}
+                          onChange={(event) => setLensDraft((draft) => draft && { ...draft, description: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <span>{tr(language, "ai.lensPrompt")}</span>
+                        <textarea
+                          rows={6}
+                          value={lensDraft.prompt}
+                          placeholder={tr(language, "ai.lensPromptPlaceholder")}
+                          onChange={(event) => setLensDraft((draft) => draft && { ...draft, prompt: event.target.value })}
+                        />
+                      </label>
+                      <div className="reading-lens-form-actions">
+                        <button type="submit" className="solid" disabled={!lensDraft.label.trim() || !lensDraft.prompt.trim()}>
+                          {tr(language, "ai.saveLens")}
+                        </button>
+                        <button type="button" className="tiny" onClick={cancelLensEdit}>
+                          {tr(language, "ai.cancelRename")}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              )}
             </section>
             {logs && <pre className="hint ai-logs">{logs.slice(-1200)}</pre>}
           </div>

@@ -96,6 +96,14 @@ pub struct BookRecord {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CustomReadingLens {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub prompt: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppSettings {
     #[serde(rename = "agentId")]
     pub agent_id: String,
@@ -115,6 +123,8 @@ pub struct AppSettings {
     pub current_shelf: String,
     #[serde(rename = "modelId", default)]
     pub model_id: String,
+    #[serde(rename = "customReadingLenses", default)]
+    pub custom_reading_lenses: Vec<CustomReadingLens>,
 }
 
 fn default_handedness() -> String {
@@ -145,6 +155,7 @@ impl Default for AppSettings {
             open_tabs: Vec::new(),
             current_shelf: String::new(),
             model_id: String::new(),
+            custom_reading_lenses: Vec::new(),
         }
     }
 }

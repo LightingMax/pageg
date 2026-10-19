@@ -829,6 +829,14 @@ button:disabled { opacity: 0.45; cursor: default; }
   line-height: 1.35;
 }
 .reading-lenses-heading > span { flex: none; }
+.reading-lenses-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.reading-lenses-heading-actions > span { color: var(--ink-soft); font-size: 10px; }
 .reading-lens-list {
   display: flex;
   flex-wrap: wrap;
@@ -867,6 +875,78 @@ button:disabled { opacity: 0.45; cursor: default; }
   white-space: nowrap;
 }
 .reading-lens:disabled { cursor: not-allowed; opacity: 0.5; }
+.reading-lens-manager {
+  display: grid;
+  gap: 7px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--rule);
+}
+.reading-lens-manager-head,
+.custom-lens-row,
+.reading-lens-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+.reading-lens-manager-head > span {
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+.reading-lens-empty {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.custom-lens-list { display: grid; gap: 5px; }
+.custom-lens-row {
+  padding: 6px 7px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: color-mix(in srgb, #fffaf2 78%, var(--paper));
+}
+.custom-lens-row > div:first-child { min-width: 0; display: grid; gap: 2px; }
+.custom-lens-row strong,
+.custom-lens-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.custom-lens-row strong { color: var(--ink); font-size: 11px; }
+.custom-lens-row small { color: var(--ink-soft); font-size: 10px; }
+.custom-lens-actions { display: flex; flex: none; gap: 4px; }
+.custom-lens-actions .danger { color: var(--oxblood); }
+.reading-lens-form {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--oxblood) 24%, var(--rule));
+  border-radius: 9px;
+  background: #fffaf2;
+}
+.reading-lens-form label { display: grid; gap: 3px; }
+.reading-lens-form label > span {
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 650;
+}
+.reading-lens-form input,
+.reading-lens-form textarea {
+  width: 100%;
+  border: 1px solid var(--rule);
+  border-radius: 7px;
+  padding: 6px 7px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.reading-lens-form textarea { resize: vertical; }
+.reading-lens-form-actions { justify-content: flex-start; }
+.reading-lens-form-actions .solid { padding: 6px 10px; font-size: 11px; }
 .session-title-input {
   width: min(150px, 100%);
   min-width: 0;
