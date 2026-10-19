@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { activeChatSession } from "../lib/chat-history";
 import { inferAskScope } from "../lib/context";
 import MarkdownContent from "./MarkdownContent";
 import { tr } from "../lib/i18n";
+import { READING_LENSES } from "../lib/reading-prompts";
 import type { AcpStatus, AskScope, BookRecord, ChatHistory, Highlight, Language, PaperSearchState, ReaderTurn, SelectionPayload } from "../lib/types";
 
 type Tab = "marks" | "tags" | "notes" | "ai" | "glossary";
@@ -78,6 +79,7 @@ export default function SidePanel({
 }: Props) {
   const [tab, setTab] = useState<Tab>("marks");
   const [question, setQuestion] = useState("");
+  const questionInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const sorted = [...(book?.highlights ?? [])].sort(
@@ -102,6 +104,11 @@ export default function SidePanel({
     if (!renamingSessionId || !sessionTitleDraft.trim()) return;
     onRenameSession(renamingSessionId, sessionTitleDraft);
     cancelRenameSession();
+  };
+
+  const useReadingLens = (prompt: string) => {
+    setQuestion(prompt);
+    requestAnimationFrame(() => questionInputRef.current?.focus());
   };
 
   useEffect(() => {
@@ -334,6 +341,30 @@ export default function SidePanel({
                 )}
               </div>
             </div>
+            <section className="reading-lenses" aria-label={tr(language, "ai.readingLenses")}>
+              <div className="reading-lenses-heading">
+                <div>
+                  <b>{tr(language, "ai.readingLenses")}</b>
+                  <small>{tr(language, "ai.readingLensesHint")}</small>
+                </div>
+                <span>{tr(language, "ai.readingLensesAction")}</span>
+              </div>
+              <div className="reading-lens-list">
+                {READING_LENSES.map((lens) => (
+                  <button
+                    type="button"
+                    className="reading-lens"
+                    key={lens.id}
+                    onClick={() => useReadingLens(lens.prompt[language])}
+                    disabled={status.state !== "ready"}
+                    title={lens.description[language]}
+                  >
+                    <strong>{lens.label[language]}</strong>
+                    <small>{lens.description[language]}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
             {logs && <pre className="hint ai-logs">{logs.slice(-1200)}</pre>}
           </div>
           <div className={`chat-thread ${turn && !turn.ok ? "bad" : ""}`}>
@@ -381,6 +412,7 @@ export default function SidePanel({
               </div>
             )}
             <textarea
+              ref={questionInputRef}
               rows={3}
               value={question}
               placeholder={tr(language, "ai.placeholder")}
