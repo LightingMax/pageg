@@ -1,5 +1,7 @@
 use serde::Serialize;
 use std::collections::HashSet;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 
 #[derive(Clone, Serialize)]
@@ -259,7 +261,11 @@ fn which(name: &str) -> Option<String> {
     } else {
         ("which", name)
     };
-    let output = std::process::Command::new(prog).arg(flag).output().ok()?;
+    let mut command = std::process::Command::new(prog);
+    command.arg(flag);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }

@@ -1,6 +1,6 @@
 [package]
 name = "pageg"
-version = "0.2.1"
+version = "0.2.2"
 description = "Local AI PDF reader with ACP agent integration"
 authors = ["pageg"]
 edition = "2021"

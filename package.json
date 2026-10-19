@@ -1,6 +1,6 @@
 {
   "name": "pageg",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Local AI PDF reader with ACP agent integration",
   "type": "module",
