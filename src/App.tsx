@@ -12,6 +12,7 @@ import { extractDocumentContext, validDocumentContext } from "./lib/pdf-context"
 import { buildBookDigest, relevantPages, validBookDigest } from "./lib/book-context";
 import { tr } from "./lib/i18n";
 import { paperSearchQuery, wantsPaperLookup } from "./lib/paper-download";
+import { parseShelfTask, pickBestPaperCandidate, type ShelfTaskRequest } from "./lib/library-task";
 import {
   appendChatTurn,
   conversationMemory,
@@ -43,6 +44,8 @@ import type {
   PaperSearchState,
   ReaderTurn,
   SelectionPayload,
+  ShelfTaskItemState,
+  ShelfTaskState,
 } from "./lib/types";
 
 const defaultSettings: AppSettings = {
@@ -128,6 +131,7 @@ export default function App() {
   const [aiTick, setAiTick] = useState(0);
   const [readerSelection, setReaderSelection] = useState<SelectionPayload | null>(null);
   const [paperSearch, setPaperSearch] = useState<PaperSearchState | null>(null);
+  const [shelfTask, setShelfTask] = useState<ShelfTaskState | null>(null);
   const [chatFocus, setChatFocus] = useState(false);
   const [resizing, setResizing] = useState<"left" | "right" | null>(null);
   const resizeStart = useRef<{ side: "left" | "right"; x: number; width: number } | null>(null);
@@ -222,7 +226,7 @@ export default function App() {
   }, [library, recognizeBook]);
 
   const adoptBook = useCallback(
-    async (next: BookRecord | null | undefined) => {
+    async (next: BookRecord | null | undefined, moveToDesk = true) => {
       if (!next) return;
       currentBookId.current = next.id;
       requestBookId.current = null;
@@ -232,8 +236,8 @@ export default function App() {
       setLogs("");
       setTurn(null);
       setChatHistory(emptyChatHistory());
-      await window.pageg.moveBook(next.id, "");
-      const adopted = { ...next, onDesk: true, lastOpenedAt: new Date().toISOString() };
+      if (moveToDesk) await window.pageg.moveBook(next.id, "");
+      const adopted = { ...next, onDesk: moveToDesk, lastOpenedAt: new Date().toISOString() };
       setError(null);
       setBook(adopted);
       setPage(adopted.lastPage || 1);
@@ -579,6 +583,73 @@ export default function App() {
     }
   };
 
+  const runShelfTask = async (request: ShelfTaskRequest) => {
+    const initialItems: ShelfTaskItemState[] = request.papers.map((paper) => ({
+      title: paper.title,
+      hint: paper.hint,
+      status: "pending" as const,
+    }));
+    let progress = initialItems;
+    const updateItem = (index: number, patch: Partial<ShelfTaskItemState>) => {
+      progress = progress.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item));
+      setShelfTask((current) => (current ? { ...current, items: progress } : current));
+    };
+
+    setAiTick((value) => value + 1);
+    setError(null);
+    setPaperSearch(null);
+    setTurn(null);
+    setStream("");
+    setShelfTask({ shelfName: request.shelfName, status: "running", items: initialItems });
+    const imported: BookRecord[] = [];
+    try {
+      let currentCatalog = (await window.pageg.readCatalog()) as Catalog;
+      let shelf = currentCatalog.shelves.find((item) => item.name.trim() === request.shelfName.trim());
+      if (!shelf) {
+        currentCatalog = (await window.pageg.createShelf(request.shelfName)) as Catalog;
+        shelf = currentCatalog.shelves[currentCatalog.shelves.length - 1];
+      }
+      if (!shelf) throw new Error(tr(language, "app.libraryTaskShelfError"));
+      setCatalog(currentCatalog);
+      setShelfTask((current) => (current ? { ...current, shelfId: shelf?.id } : current));
+
+      for (let index = 0; index < request.papers.length; index += 1) {
+        const paper = request.papers[index];
+        updateItem(index, { status: "searching" });
+        try {
+          const candidates = (await window.pageg.searchPapers(paper.title)) as PaperCandidate[];
+          const candidate = pickBestPaperCandidate(paper.title, candidates);
+          if (!candidate?.pdfUrl) throw new Error(tr(language, "app.libraryTaskNoPdf"));
+          updateItem(index, { status: "downloading", matchedTitle: candidate.title });
+          const downloaded = (await window.pageg.downloadPdf(
+            candidate.pdfUrl,
+            `${candidate.title || paper.title}.pdf`,
+          )) as BookRecord;
+          currentCatalog = (await window.pageg.moveBook(downloaded.id, shelf.id)) as Catalog;
+          setCatalog(currentCatalog);
+          imported.push(downloaded);
+          updateItem(index, { status: "done", matchedTitle: candidate.title, bookId: downloaded.id });
+        } catch (err) {
+          updateItem(index, { status: "error", error: asError(err) });
+        }
+      }
+
+      await refreshLibrary();
+      if (imported[0]) await adoptBook(imported[0], false);
+      const failed = progress.some((item) => item.status === "error");
+      setShelfTask((current) => current ? {
+        ...current,
+        status: imported.length === 0 ? "error" : failed ? "partial" : "done",
+        items: progress,
+        shelfId: shelf.id,
+      } : current);
+      setAiTick((value) => value + 1);
+    } catch (err) {
+      setShelfTask((current) => current ? { ...current, status: "error", items: progress, error: asError(err) } : current);
+      setError(asError(err));
+    }
+  };
+
   const updateBookMetadata = async (id: string, patch: BookMetadataPatch) => {
     try {
       const updated = (await window.pageg.updateBookMetadata(id, {
@@ -644,6 +715,13 @@ export default function App() {
     const updateTurn = (next: ReaderTurn | null) => {
       if (currentBookId.current === requestBook.id) setTurn(next);
     };
+    if (intent === "ask") {
+      const shelfTaskRequest = parseShelfTask(extra ?? "");
+      if (shelfTaskRequest) {
+        void runShelfTask(shelfTaskRequest);
+        return;
+      }
+    }
     if (intent === "ask" && wantsPaperLookup(extra ?? "")) {
       setAiTick((n) => n + 1);
       void beginPaperSearch(extra ?? "");
@@ -1042,9 +1120,11 @@ export default function App() {
           }}
           onDeleteMark={deleteHighlight}
           paperSearch={paperSearch}
+          shelfTask={shelfTask}
           onSelectPaper={selectPaperCandidate}
           onConfirmPaper={() => void confirmPaperDownload()}
           onCancelPaper={cancelPaperSearch}
+          onClearShelfTask={() => setShelfTask(null)}
           language={language}
           />
         </div>

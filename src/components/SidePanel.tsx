@@ -4,7 +4,7 @@ import { inferAskScope } from "../lib/context";
 import MarkdownContent from "./MarkdownContent";
 import { tr } from "../lib/i18n";
 import { READING_LENSES } from "../lib/reading-prompts";
-import type { AcpStatus, AskScope, BookRecord, ChatHistory, CustomReadingLens, Highlight, Language, PaperSearchState, ReaderTurn, SelectionPayload } from "../lib/types";
+import type { AcpStatus, AskScope, BookRecord, ChatHistory, CustomReadingLens, Highlight, Language, PaperSearchState, ReaderTurn, SelectionPayload, ShelfTaskState } from "../lib/types";
 
 type Tab = "marks" | "tags" | "notes" | "ai" | "glossary";
 
@@ -30,9 +30,11 @@ type Props = {
   onJump: (mark: Highlight) => void;
   onDeleteMark: (id: string) => void;
   paperSearch: PaperSearchState | null;
+  shelfTask: ShelfTaskState | null;
   onSelectPaper: (id: string) => void;
   onConfirmPaper: () => void;
   onCancelPaper: () => void;
+  onClearShelfTask: () => void;
   customReadingLenses: CustomReadingLens[];
   onCustomReadingLenses: (lenses: CustomReadingLens[]) => void;
   turn: ReaderTurn | null;
@@ -50,6 +52,24 @@ function kindLabel(language: Language, kind: string) {
   }[kind] ?? tr(language, "marks.tab");
 }
 
+function shelfTaskStatusLabel(language: Language, status: ShelfTaskState["items"][number]["status"]) {
+  const labels = {
+    pending: ["等待", "Queued"],
+    searching: ["搜索中", "Searching"],
+    downloading: ["下载中", "Downloading"],
+    done: ["已加入", "Added"],
+    error: ["失败", "Failed"],
+  } as const;
+  return labels[status][language === "en-US" ? 1 : 0];
+}
+
+function shelfTaskSummary(language: Language, state: ShelfTaskState) {
+  if (state.status === "running") return tr(language, "ai.libraryTaskRunning");
+  if (state.status === "done") return tr(language, "ai.libraryTaskDone");
+  if (state.status === "partial") return tr(language, "ai.libraryTaskPartial");
+  return tr(language, "ai.libraryTaskFailed");
+}
+
 export default function SidePanel({
   book,
   status,
@@ -63,9 +83,11 @@ export default function SidePanel({
   onJump,
   onDeleteMark,
   paperSearch,
+  shelfTask,
   onSelectPaper,
   onConfirmPaper,
   onCancelPaper,
+  onClearShelfTask,
   customReadingLenses,
   onCustomReadingLenses,
   turn,
@@ -339,6 +361,32 @@ export default function SidePanel({
                     )}
                   </>
                 )}
+              </section>
+            )}
+            {shelfTask && (
+              <section className="shelf-task-panel" aria-live="polite">
+                <div className="shelf-task-heading">
+                  <div>
+                    <b>{tr(language, "ai.libraryTask")}</b>
+                    <strong>{shelfTask.shelfName}</strong>
+                    <small>{shelfTaskSummary(language, shelfTask)}</small>
+                  </div>
+                  <button type="button" className="paper-search-close" onClick={onClearShelfTask}>
+                    {tr(language, "ai.clearLibraryTask")}
+                  </button>
+                </div>
+                <div className="shelf-task-list">
+                  {shelfTask.items.map((item) => (
+                    <div className={`shelf-task-item ${item.status}`} key={item.title}>
+                      <span className="shelf-task-status">{shelfTaskStatusLabel(language, item.status)}</span>
+                      <div>
+                        <strong>{item.title}</strong>
+                        {item.matchedTitle && item.matchedTitle !== item.title && <small>{item.matchedTitle}</small>}
+                        {item.error && <em>{item.error}</em>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </section>
             )}
             <div className="chat-session-bar">

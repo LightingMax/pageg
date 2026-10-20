@@ -82,6 +82,23 @@ export type PaperSearchState = {
   error?: string;
 };
 
+export type ShelfTaskItemState = {
+  title: string;
+  hint: string;
+  status: "pending" | "searching" | "downloading" | "done" | "error";
+  matchedTitle?: string;
+  bookId?: string;
+  error?: string;
+};
+
+export type ShelfTaskState = {
+  shelfName: string;
+  shelfId?: string;
+  status: "running" | "done" | "partial" | "error";
+  items: ShelfTaskItemState[];
+  error?: string;
+};
+
 export type CustomReadingLens = {
   id: string;
   label: string;
