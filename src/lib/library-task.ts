@@ -25,7 +25,7 @@ function tokens(value: string) {
   return new Set(normalize(value).split(/\s+/).filter((token) => token.length > 1));
 }
 
-/** Parse a natural-language batch request such as “新建 X 书架，我要读 ①… ②…”. */
+/** Parse a natural-language shelf request such as “新建 X 书架” or a batch request. */
 export function parseShelfTask(input: string): ShelfTaskRequest | null {
   const value = input.trim();
   const shelfMatch = value.match(/(?:新建|创建|建立)\s*(?:一个|一组)?\s*(?:名为|叫(?:做)?)?\s*([^，。,\.\n]{1,40}?)\s*(?:的)?\s*书架/i);
@@ -48,7 +48,7 @@ export function parseShelfTask(input: string): ShelfTaskRequest | null {
     }
     papers.push({ title, hint: details.join(" ") });
   }
-  return papers.length > 0 ? { shelfName, papers } : null;
+  return { shelfName, papers };
 }
 
 export function pickBestPaperCandidate(query: string, candidates: PaperCandidate[]) {

@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { tr } from "../lib/i18n";
-import type { BookMeta, BookMetadataPatch, Catalog, Language, Shelf } from "../lib/types";
+import DeskAssistant, { type GlobalMessage } from "./DeskAssistant";
+import type { AcpStatus, BookMeta, BookMetadataPatch, Catalog, Language, Shelf, ShelfTaskState } from "../lib/types";
 
 type Props = {
   library: BookMeta[];
@@ -14,6 +15,13 @@ type Props = {
   onDeleteShelf: (id: string) => void;
   onMoveBook: (bookId: string, shelfId: string) => void;
   onUpdateMetadata: (id: string, patch: BookMetadataPatch) => void;
+  globalMessages: GlobalMessage[];
+  globalBusy: boolean;
+  status: AcpStatus;
+  shelfTask: ShelfTaskState | null;
+  onGlobalAsk: (question: string) => void;
+  onGlobalCancel: () => void;
+  onClearShelfTask: () => void;
   language: Language;
 };
 
@@ -116,6 +124,7 @@ function BookStack({ shelf, books, selected, onSelect, onOpenBook, onDropBook, l
 export default function DeskHome({
   library, catalog, dragging, onOpenBook, onImport, onUploadFile, onCreateShelf,
   onRenameShelf, onDeleteShelf, onMoveBook, onUpdateMetadata,
+  globalMessages, globalBusy, status, shelfTask, onGlobalAsk, onGlobalCancel, onClearShelfTask,
   language,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -169,6 +178,16 @@ export default function DeskHome({
 
   return (
     <main className={`desk-home ${dragging ? "receiving" : ""}`}>
+      <DeskAssistant
+        messages={globalMessages}
+        busy={globalBusy}
+        status={status}
+        shelfTask={shelfTask}
+        onAsk={onGlobalAsk}
+        onCancel={onGlobalCancel}
+        onClearShelfTask={onClearShelfTask}
+        language={language}
+      />
       <input ref={fileRef} type="file" accept="application/pdf" hidden onChange={(event) => {
         const file = event.target.files?.[0];
         event.target.value = "";
@@ -176,6 +195,11 @@ export default function DeskHome({
       }} />
       <div className="desk-wall">
         <div className="window-light" aria-hidden="true"><i /><i /><i /></div>
+        <div className="desk-illustration" aria-hidden="true">
+          <span className="illustration-sun" />
+          <span className="illustration-branch" />
+          <span className="illustration-card">READ<br /><small>CURIOUSLY</small></span>
+        </div>
         <button type="button" className="index-cabinet" onClick={() => { setSelectedShelf(null); setIndexOpen(true); }}>
           <span className="cabinet-tabs"><i /><i /><i /></span>
           <b>{tr(language, "desk.libraryIndex")}</b>

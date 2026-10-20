@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import DeskHome from "./components/DeskHome";
+import type { GlobalMessage } from "./components/DeskAssistant";
 import PdfPane from "./components/PdfPane";
 import SidePanel from "./components/SidePanel";
 import SetupPage from "./components/SetupPage";
@@ -132,6 +133,16 @@ export default function App() {
   const [readerSelection, setReaderSelection] = useState<SelectionPayload | null>(null);
   const [paperSearch, setPaperSearch] = useState<PaperSearchState | null>(null);
   const [shelfTask, setShelfTask] = useState<ShelfTaskState | null>(null);
+  const [globalMessages, setGlobalMessages] = useState<GlobalMessage[]>(() => {
+    try {
+      const stored = window.localStorage.getItem("pageg-global-chat");
+      const parsed = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? parsed.filter((item): item is GlobalMessage => item && (item.role === "user" || item.role === "assistant") && typeof item.text === "string").slice(-80) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [globalBusy, setGlobalBusy] = useState(false);
   const [chatFocus, setChatFocus] = useState(false);
   const [resizing, setResizing] = useState<"left" | "right" | null>(null);
   const resizeStart = useRef<{ side: "left" | "right"; x: number; width: number } | null>(null);
@@ -141,6 +152,7 @@ export default function App() {
   const currentBookId = useRef<string | null>(null);
   const requestBookId = useRef<string | null>(null);
   const paperSearchRequest = useRef(0);
+  const globalRequest = useRef(0);
   const language = settings.language;
 
   const startResize = useCallback((side: "left" | "right", event: ReactPointerEvent<HTMLElement>) => {
@@ -403,6 +415,14 @@ export default function App() {
   }, [settings, hydrated]);
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem("pageg-global-chat", JSON.stringify(globalMessages.slice(-80)));
+    } catch {
+      // Local chat is a convenience; failure to persist must not block the reader.
+    }
+  }, [globalMessages]);
+
+  useEffect(() => {
     if (!hydrated || !window.pageg || autoTried.current) return;
     autoTried.current = true;
     void (async () => {
@@ -639,7 +659,7 @@ export default function App() {
       const failed = progress.some((item) => item.status === "error");
       setShelfTask((current) => current ? {
         ...current,
-        status: imported.length === 0 ? "error" : failed ? "partial" : "done",
+        status: request.papers.length === 0 ? "done" : imported.length === 0 ? "error" : failed ? "partial" : "done",
         items: progress,
         shelfId: shelf.id,
       } : current);
@@ -648,6 +668,71 @@ export default function App() {
       setShelfTask((current) => current ? { ...current, status: "error", items: progress, error: asError(err) } : current);
       setError(asError(err));
     }
+  };
+
+  const askGlobal = (question: string) => {
+    const value = question.trim();
+    if (!value || globalBusy) return;
+    const requestId = ++globalRequest.current;
+    const userMessage: GlobalMessage = { id: crypto.randomUUID(), role: "user", text: value };
+    setGlobalMessages((previous) => [...previous, userMessage].slice(-80));
+    setGlobalBusy(true);
+    setError(null);
+
+    void (async () => {
+      const finish = (text: string) => {
+        if (globalRequest.current !== requestId) return;
+        const assistantMessage: GlobalMessage = { id: crypto.randomUUID(), role: "assistant", text };
+        setGlobalMessages((previous) => [...previous, assistantMessage].slice(-80));
+        setGlobalBusy(false);
+      };
+      const shelfRequest = parseShelfTask(value);
+      if (shelfRequest) {
+        await runShelfTask(shelfRequest);
+        finish(shelfRequest.papers.length
+          ? (language === "en-US" ? `I created or reused the “${shelfRequest.shelfName}” shelf and started processing ${shelfRequest.papers.length} papers.` : `已创建或复用“${shelfRequest.shelfName}”书架，并开始处理 ${shelfRequest.papers.length} 篇论文。`)
+          : (language === "en-US" ? `The “${shelfRequest.shelfName}” shelf is ready on your desk.` : `“${shelfRequest.shelfName}”书架已经在你的书桌上准备好了。`));
+        return;
+      }
+      if (status.state !== "ready" && status.state !== "prompting") {
+        setSetupOpen(true);
+        finish(language === "en-US" ? "Connect an agent in the top right, then ask me again." : "请先在右上角连接智能体，再向我提问。");
+        return;
+      }
+      if (/书架|书库|shelf|library/i.test(value) && /(有哪些|列出|查看|显示|list|show|what)/i.test(value)) {
+        const shelves = catalog.shelves.map((shelf) => `- **${shelf.name}** · ${shelf.bookIds.length} ${language === "en-US" ? "books" : "本"}`).join("\n");
+        finish(shelves ? (language === "en-US" ? `### Your shelves\n${shelves}` : `### 你的书架\n${shelves}`) : (language === "en-US" ? "Your library has no shelves yet." : "你的书库还没有书架。"));
+        return;
+      }
+      const shelfSummary = catalog.shelves.length
+        ? catalog.shelves.map((shelf) => `${shelf.name} (${shelf.bookIds.length})`).join("、")
+        : (language === "en-US" ? "none" : "暂无");
+      const bookSummary = library.slice(0, 40).map((item) => `${item.title}${item.authors.length ? ` · ${item.authors.slice(0, 2).join(", ")}` : ""}`).join("\n");
+      const prompt = [
+        "你是 Pageg 的全局书桌助手。",
+        "你可以帮助用户管理本地书库、书架和阅读计划。书架创建、论文下载等本地动作必须由 Pageg 执行；如果用户要求执行动作，不要假装已经完成。",
+        `当前书架：${shelfSummary}`,
+        `当前文献：\n${bookSummary || "暂无"}`,
+        `用户问题：${value}`,
+        "请用简洁中文回答；如果只是建议，明确说这是建议。",
+      ].join("\n\n");
+      requestBookId.current = `global-${requestId}`;
+      try {
+        const raw = await window.pageg.acpPromptIsolated(prompt);
+        if (globalRequest.current !== requestId) return;
+        finish(readerAnswer(raw, "ask").text);
+      } catch (err) {
+        finish(asError(err));
+      } finally {
+        if (requestBookId.current === `global-${requestId}`) requestBookId.current = null;
+      }
+    })();
+  };
+
+  const cancelGlobal = () => {
+    globalRequest.current += 1;
+    setGlobalBusy(false);
+    void window.pageg.acpCancel();
   };
 
   const updateBookMetadata = async (id: string, patch: BookMetadataPatch) => {
@@ -1141,6 +1226,13 @@ export default function App() {
           onDeleteShelf={(id) => void deleteShelf(id)}
           onMoveBook={(bookId, shelfId) => void moveBook(bookId, shelfId)}
           onUpdateMetadata={(id, patch) => void updateBookMetadata(id, patch)}
+          globalMessages={globalMessages}
+          globalBusy={globalBusy}
+          status={status}
+          shelfTask={shelfTask}
+          onGlobalAsk={askGlobal}
+          onGlobalCancel={cancelGlobal}
+          onClearShelfTask={() => setShelfTask(null)}
           language={language}
         />
       )}

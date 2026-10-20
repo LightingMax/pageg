@@ -21,7 +21,7 @@ Image and Vision Computing · 2024`);
   });
 
   it("does not turn an ordinary shelf request into a batch task", () => {
-    expect(parseShelfTask("新建一个计算机视觉的书架")).toBeNull();
+  expect(parseShelfTask("新建一个计算机视觉的书架")).toEqual({ shelfName: "计算机视觉", papers: [] });
   });
 
   it("chooses the candidate whose title best matches the requested paper", () => {

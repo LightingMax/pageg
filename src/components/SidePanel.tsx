@@ -65,6 +65,7 @@ function shelfTaskStatusLabel(language: Language, status: ShelfTaskState["items"
 
 function shelfTaskSummary(language: Language, state: ShelfTaskState) {
   if (state.status === "running") return tr(language, "ai.libraryTaskRunning");
+  if (state.status === "done" && state.items.length === 0) return tr(language, "ai.libraryTaskShelfOnly");
   if (state.status === "done") return tr(language, "ai.libraryTaskDone");
   if (state.status === "partial") return tr(language, "ai.libraryTaskPartial");
   return tr(language, "ai.libraryTaskFailed");
