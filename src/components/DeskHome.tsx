@@ -14,6 +14,7 @@ type Props = {
   onRenameShelf: (id: string, name: string) => void;
   onDeleteShelf: (id: string) => void;
   onMoveBook: (bookId: string, shelfId: string) => void;
+  onAssignBook: (bookId: string, shelfId: string) => void;
   onUpdateMetadata: (id: string, patch: BookMetadataPatch) => void;
   globalMessages: GlobalMessage[];
   globalBusy: boolean;
@@ -62,7 +63,7 @@ function BookSpine({ book, index, onOpen, language }: { book: BookMeta; index: n
       title={language === "en-US" ? `Open “${book.title}”; you can also drag it to another stack` : `打开《${book.title}》；也可以拖到其他书堆`}
       onDragStart={(event) => {
         event.stopPropagation();
-        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.effectAllowed = "copyMove";
         event.dataTransfer.setData("application/x-pageg-book", book.id);
         event.dataTransfer.setData("text/plain", book.id);
       }}
@@ -78,13 +79,14 @@ function BookSpine({ book, index, onOpen, language }: { book: BookMeta; index: n
   );
 }
 
-function BookStack({ shelf, books, selected, onSelect, onOpenBook, onDropBook, language }: {
+function BookStack({ shelf, books, selected, onSelect, onOpenBook, onDropBook, onCopyBook, language }: {
   shelf: Shelf;
   books: BookMeta[];
   selected: boolean;
   onSelect: () => void;
   onOpenBook: (id: string) => void;
   onDropBook: (bookId: string) => void;
+  onCopyBook: (bookId: string) => void;
   language: Language;
 }) {
   return (
@@ -94,17 +96,21 @@ function BookStack({ shelf, books, selected, onSelect, onOpenBook, onDropBook, l
       onDragOver={(event) => {
         if (!event.dataTransfer.types.includes("application/x-pageg-book")) return;
         event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
+        const copying = event.ctrlKey || event.metaKey;
+        event.dataTransfer.dropEffect = copying ? "copy" : "move";
         event.currentTarget.classList.add("drag-target");
+        event.currentTarget.classList.toggle("copy-target", copying);
       }}
-      onDragLeave={(event) => event.currentTarget.classList.remove("drag-target")}
+      onDragLeave={(event) => event.currentTarget.classList.remove("drag-target", "copy-target")}
       onDrop={(event) => {
         const bookId = event.dataTransfer.getData("application/x-pageg-book");
         if (!bookId) return;
         event.preventDefault();
         event.stopPropagation();
-        event.currentTarget.classList.remove("drag-target");
-        onDropBook(bookId);
+        const copying = event.ctrlKey || event.metaKey || event.dataTransfer.dropEffect === "copy";
+        event.currentTarget.classList.remove("drag-target", "copy-target");
+        if (copying && shelf.id) onCopyBook(bookId);
+        else onDropBook(bookId);
       }}
     >
       <div className="stack-books" aria-label={language === "en-US" ? `${shelf.name}, ${books.length} books` : `${shelf.name}，${books.length} 本`}>
@@ -124,6 +130,7 @@ function BookStack({ shelf, books, selected, onSelect, onOpenBook, onDropBook, l
 export default function DeskHome({
   library, catalog, dragging, onOpenBook, onImport, onUploadFile, onCreateShelf,
   onRenameShelf, onDeleteShelf, onMoveBook, onUpdateMetadata,
+  onAssignBook,
   globalMessages, globalBusy, status, shelfTask, onGlobalAsk, onGlobalCancel, onClearShelfTask,
   language,
 }: Props) {
@@ -139,11 +146,12 @@ export default function DeskHome({
   const [editYear, setEditYear] = useState("");
   const [editDoi, setEditDoi] = useState("");
   const [targetShelf, setTargetShelf] = useState("");
+  const [roomOpen, setRoomOpen] = useState(false);
 
   const assignedIds = useMemo(() => new Set(catalog.shelves.flatMap((shelf) => shelf.bookIds)), [catalog.shelves]);
   const deskBooks = useMemo(
-    () => library.filter((book) => book.onDesk !== false && !assignedIds.has(book.id)).sort((a, b) => activity(b) - activity(a)),
-    [assignedIds, library],
+    () => library.filter((book) => book.onDesk !== false).sort((a, b) => activity(b) - activity(a)),
+    [library],
   );
   const recentBooks = deskBooks.slice(0, 7);
   const recentShelf: Shelf = { id: "", name: tr(language, "desk.recent"), bookIds: recentBooks.map((book) => book.id) };
@@ -160,6 +168,10 @@ export default function DeskHome({
     })
     .sort((a, b) => activity(b) - activity(a));
   const selectedBook = library.find((book) => book.id === selectedBookId) ?? null;
+  const looseBooks = useMemo(
+    () => library.filter((book) => book.onDesk === false && !assignedIds.has(book.id)).sort((a, b) => activity(b) - activity(a)),
+    [assignedIds, library],
+  );
 
   const chooseShelf = (shelf: Shelf) => {
     setIndexOpen(false);
@@ -200,6 +212,11 @@ export default function DeskHome({
           <span className="illustration-branch" />
           <span className="illustration-card">READ<br /><small>CURIOUSLY</small></span>
         </div>
+        <button type="button" className="book-room-door" onClick={() => setRoomOpen(true)}>
+          <span className="door-knob" aria-hidden="true" />
+          <b>{language === "en-US" ? "Book room" : "书房"}</b>
+          <small>{language === "en-US" ? `${catalog.shelves.length} stacks` : `${catalog.shelves.length} 摞书`}</small>
+        </button>
         <button type="button" className="index-cabinet" onClick={() => { setSelectedShelf(null); setIndexOpen(true); }}>
           <span className="cabinet-tabs"><i /><i /><i /></span>
           <b>{tr(language, "desk.libraryIndex")}</b>
@@ -215,7 +232,26 @@ export default function DeskHome({
       <div className="desk-surface">
         <div className="desk-lamp" aria-hidden="true"><i /><b /><span /></div>
         <div className="pencil-cup" aria-hidden="true"><i /><i /><i /><span /></div>
-        <button type="button" className="reading-mat" onClick={onImport}>
+        <button
+          type="button"
+          className="reading-mat"
+          onClick={onImport}
+          onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes("application/x-pageg-book")) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+            event.currentTarget.classList.add("book-drop-target");
+          }}
+          onDragLeave={(event) => event.currentTarget.classList.remove("book-drop-target")}
+          onDrop={(event) => {
+            const bookId = event.dataTransfer.getData("application/x-pageg-book");
+            if (!bookId) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.classList.remove("book-drop-target");
+            onOpenBook(bookId);
+          }}
+        >
           <span className="mat-corners" />
           <b>{dragging ? tr(language, "desk.dropToDesk") : tr(language, "desk.dropPdfDesk")}</b>
           <small>{tr(language, "desk.indexHint")}</small><i>PDF</i>
@@ -231,6 +267,7 @@ export default function DeskHome({
               onSelect={() => chooseShelf(shelf)}
               onOpenBook={onOpenBook}
               onDropBook={(bookId) => onMoveBook(bookId, shelf.id)}
+              onCopyBook={(bookId) => onAssignBook(bookId, shelf.id)}
               language={language}
             />
           ))}
@@ -251,6 +288,57 @@ export default function DeskHome({
           </div>
         </form>
       </div>
+
+      {roomOpen && (
+        <aside className="book-room" aria-label={language === "en-US" ? "Book room" : "书房"}>
+          <div className="book-room-backdrop" onClick={() => setRoomOpen(false)} />
+          <div className="book-room-panel">
+            <header className="book-room-header">
+              <div>
+                <span className="eyebrow">PRIVATE LIBRARY</span>
+                <h2>{language === "en-US" ? "The book room" : "书房"}</h2>
+                <p>{language === "en-US" ? "A quiet place for every stack. Drag an index to another shelf; hold Ctrl/⌘ to keep the original." : "这里收纳所有书摞。拖动索引可移动，按住 Ctrl/⌘ 可保留原书架并增加一个索引。"}</p>
+              </div>
+              <button type="button" className="ghost" onClick={() => setRoomOpen(false)}>{tr(language, "desk.collapse")}</button>
+            </header>
+            <div className="room-shelves">
+              {catalog.shelves.map((shelf) => (
+                <BookStack
+                  key={`room-${shelf.id}`}
+                  shelf={shelf}
+                  books={library.filter((book) => shelf.bookIds.includes(book.id))}
+                  selected={false}
+                  onSelect={() => { setRoomOpen(false); chooseShelf(shelf); }}
+                  onOpenBook={onOpenBook}
+                  onDropBook={(bookId) => onMoveBook(bookId, shelf.id)}
+                  onCopyBook={(bookId) => onAssignBook(bookId, shelf.id)}
+                  language={language}
+                />
+              ))}
+              {looseBooks.length > 0 && (
+                <section className="room-loose-stack">
+                  <div className="stack-books" aria-label={language === "en-US" ? "Unfiled books" : "未归档的书"}>
+                    {looseBooks.slice(0, 7).map((book, index) => <BookSpine key={book.id} book={book} index={index} onOpen={() => onOpenBook(book.id)} language={language} />)}
+                  </div>
+                  <div className="stack-label"><span>{language === "en-US" ? "Unfiled" : "未归档"}</span><small>{looseBooks.length} {language === "en-US" ? "books" : "本"}</small></div>
+                </section>
+              )}
+              {catalog.shelves.length === 0 && looseBooks.length === 0 && <p className="empty room-empty">{language === "en-US" ? "The room is waiting for its first stack." : "书房还在等第一摞书。"}</p>}
+            </div>
+            <form className="room-new-shelf" onSubmit={(event) => {
+              event.preventDefault();
+              const name = newShelf.trim();
+              if (!name) return;
+              onCreateShelf(name);
+              setNewShelf("");
+            }}>
+              <label htmlFor="room-new-shelf">{tr(language, "desk.newStack")}</label>
+              <input id="room-new-shelf" value={newShelf} maxLength={30} placeholder={tr(language, "desk.newStackPlaceholder")} onChange={(event) => setNewShelf(event.target.value)} />
+              <button type="submit" className="solid" disabled={!newShelf.trim()}>{tr(language, "desk.create")}</button>
+            </form>
+          </div>
+        </aside>
+      )}
 
       {selected && (
         <aside className="shelf-drawer">

@@ -1826,6 +1826,68 @@ select {
   .metadata-editor { border-left: 0; border-top: 1px solid rgba(91,62,40,0.15); }
 }
 
+/* The desk opens into a separate room when the collection outgrows the tabletop. */
+.book-room-door {
+  position: absolute;
+  left: clamp(28px, 6vw, 90px);
+  top: 34px;
+  z-index: 4;
+  width: 112px;
+  min-height: 128px;
+  display: grid;
+  align-content: end;
+  justify-items: start;
+  gap: 3px;
+  padding: 16px 13px 13px;
+  border: 1px solid rgba(41,49,47,.17);
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(69,110,106,.12), transparent 12%), #f3eee4;
+  box-shadow: 6px 8px 0 rgba(41,49,47,.07);
+  color: #33443f;
+  text-align: left;
+  transform: perspective(500px) rotateY(-7deg);
+  transform-origin: right center;
+}
+.book-room-door::before { content: ""; position: absolute; inset: 13px 12px 37px; border: 1px solid rgba(69,110,106,.25); background: linear-gradient(145deg, #d6e0d8, #f6f1e7); }
+.book-room-door::after { content: ""; position: absolute; left: 23px; right: 23px; top: 48px; height: 1px; background: rgba(69,110,106,.2); }
+.book-room-door:hover { transform: perspective(500px) rotateY(-2deg) translateY(-3px); box-shadow: 8px 11px 0 rgba(41,49,47,.09); }
+.book-room-door b, .book-room-door small { position: relative; z-index: 1; }
+.book-room-door b { font-size: 12px; letter-spacing: .04em; }
+.book-room-door small { color: #78847e; font-size: 10px; }
+.door-knob { position: absolute; z-index: 2; right: 23px; top: 68px; width: 7px; height: 7px; border-radius: 50%; background: #c77655; box-shadow: 0 0 0 2px rgba(199,118,85,.16); }
+.reading-mat.book-drop-target { outline: 3px solid rgba(69,110,106,.35); outline-offset: 5px; }
+.book-stack.copy-target .stack-label { outline: 3px solid rgba(199,118,85,.5); background: #f8e8df; }
+.book-stack.copy-target .stack-books { filter: saturate(1.18); }
+
+.book-room { position: fixed; inset: 56px 0 0; z-index: 26; display: grid; place-items: stretch; }
+.book-room-backdrop { position: absolute; inset: 0; background: rgba(38,48,45,.34); backdrop-filter: blur(3px); }
+.book-room-panel { position: relative; width: min(1120px, calc(100vw - 56px)); height: min(760px, calc(100vh - 86px)); margin: 22px auto 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid rgba(41,49,47,.2); border-radius: 3px; background: #eee9df; box-shadow: 0 28px 70px rgba(24,32,30,.28); }
+.book-room-header { display: flex; align-items: start; justify-content: space-between; gap: 20px; padding: 24px 28px 18px; border-bottom: 1px solid rgba(41,49,47,.12); background: #f8f5ef; }
+.book-room-header h2 { margin: 4px 0 5px; color: #293a36; font-family: Georgia, serif; font-size: 30px; font-weight: 500; }
+.book-room-header p { max-width: 650px; margin: 0; color: #718078; font-size: 12px; line-height: 1.55; }
+.room-shelves { min-height: 0; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); align-content: start; align-items: end; gap: 28px 22px; padding: 30px 28px 36px; background: linear-gradient(180deg, rgba(69,110,106,.06), transparent 34%), repeating-linear-gradient(0deg, transparent 0 46px, rgba(69,110,106,.08) 47px, transparent 48px); }
+.room-shelves .book-stack, .room-loose-stack { min-height: 190px; width: 100%; padding: 15px 10px 13px; border-bottom: 3px solid #456e6a; background: rgba(248,245,239,.76); box-shadow: 0 8px 0 rgba(41,49,47,.06); }
+.room-shelves .stack-books, .room-loose-stack .stack-books { width: 100%; min-height: 120px; }
+.room-shelves .desk-book, .room-loose-stack .desk-book { max-width: 92%; }
+.room-shelves .stack-label, .room-loose-stack .stack-label { margin-top: 10px; }
+.room-shelves .empty-stack { width: 86%; height: 72px; border-color: rgba(69,110,106,.26); color: #77857e; }
+.room-empty { grid-column: 1 / -1; place-self: center; padding: 44px; color: #76837c; }
+.room-new-shelf { display: flex; align-items: center; justify-content: end; gap: 8px; padding: 12px 28px; border-top: 1px solid rgba(41,49,47,.12); background: #f8f5ef; }
+.room-new-shelf label { margin-right: 4px; color: #64736c; font-size: 11px; }
+.room-new-shelf input { width: 190px; padding: 8px 10px; border: 1px solid #c9d0c9; border-radius: 2px; background: #fff; color: #293a36; font-size: 12px; }
+.room-new-shelf .solid { padding: 8px 13px; border-radius: 2px; }
+
+@media (max-width: 720px) {
+  .book-room { inset: 56px 0 0; }
+  .book-room-panel { width: calc(100vw - 18px); height: calc(100vh - 66px); margin-top: 9px; }
+  .book-room-header { padding: 17px 16px 14px; }
+  .book-room-header h2 { font-size: 24px; }
+  .room-shelves { grid-template-columns: 1fr; padding: 18px 16px 26px; }
+  .room-new-shelf { padding: 10px 16px; }
+  .room-new-shelf input { width: 140px; }
+  .book-room-door { left: 18px; top: 24px; width: 92px; min-height: 106px; }
+}
+
 /* Quiet editorial desk: flat paper, ink, and one small illustration. */
 .home-mode .desk-home {
   --wood-dark: #d9cdbb;

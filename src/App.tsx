@@ -603,6 +603,16 @@ export default function App() {
     }
   };
 
+  const assignBook = async (bookId: string, shelfId: string) => {
+    if (!shelfId) return;
+    try {
+      setCatalog((await window.pageg.assignBook(shelfId, bookId, true)) as Catalog);
+    } catch (err) {
+      setError(asError(err));
+      await refreshLibrary();
+    }
+  };
+
   const runShelfTask = async (request: ShelfTaskRequest) => {
     const initialItems: ShelfTaskItemState[] = request.papers.map((paper) => ({
       title: paper.title,
@@ -1225,6 +1235,7 @@ export default function App() {
           onRenameShelf={(id, name) => void renameShelf(id, name)}
           onDeleteShelf={(id) => void deleteShelf(id)}
           onMoveBook={(bookId, shelfId) => void moveBook(bookId, shelfId)}
+          onAssignBook={(bookId, shelfId) => void assignBook(bookId, shelfId)}
           onUpdateMetadata={(id, patch) => void updateBookMetadata(id, patch)}
           globalMessages={globalMessages}
           globalBusy={globalBusy}
